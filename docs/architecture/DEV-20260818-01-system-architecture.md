@@ -33,7 +33,7 @@ flowchart TB
 
 ### Application Services
 
-编排 `start_generation`、`validate_candidate`、`submit_review` 和 `publish_template` 用例；处理幂等键、状态机和并发版本检查。
+使用 LangGraph 编排 `start_generation`、`validate_candidate`、`submit_review` 和 `publish_template` 用例；处理幂等键、状态机和并发版本检查。FastAPI 只作为传输和生命周期边界。
 
 ### Rule Normalizer & Diff
 
@@ -78,10 +78,10 @@ adapters (mongodb, llm, sql parser, target databases)
 ```text
 src/release_sql_bot/
 ├── api/                 # HTTP contracts and review endpoints
-├── application/         # use cases and orchestration
+├── application/         # LangGraph workflows, use cases and ports
 ├── domain/              # rules, versions, plans, policies
-├── adapters/
-│   ├── mongodb/         # repositories
+├── infrastructure/
+│   ├── database/        # lifecycle and MongoDB repositories
 │   ├── llm/             # provider implementations
 │   ├── sql/             # parser and dialect adapters
 │   └── target_db/       # EXPLAIN and sandbox execution
@@ -93,7 +93,7 @@ tests/
 └── fixtures/
 ```
 
-该结构是已提议边界，不授权在 Phase 0 创建空代码包。
+Phase 1 已建立 API、application、domain、config 和数据库禁用适配器；其余适配器按后续 Phase 增量创建。
 
 ## 6. 生成流水线
 

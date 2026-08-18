@@ -47,7 +47,9 @@
 
 ## 6. 测试与完成标准
 
-- 仓库尚未建立可执行代码骨架前，不得虚构测试命令或声称测试通过；Phase 1 建立 `pyproject.toml` 后在此处补充权威命令。
+- 使用 Python 3.11 和 `uv` 管理项目；首次安装运行 `uv sync`。
+- 权威检查命令：`uv run ruff check .`、`uv run ruff format --check .`、`uv run pytest`。
+- 服务启动命令：`uv run release-sql-bot serve`；安全配置检查：`uv run release-sql-bot check-config`。
 - 规则 JSON 必须通过 JSON Schema 校验；示例也必须纳入自动测试。
 - SQL 测试至少覆盖：语法/单语句限制、表和列白名单、只读限制、参数化、条件覆盖、方言适配和临时表清理。
 - 生成链路测试使用固定夹具或 mock，不依赖真实生产库和在线模型才能完成基础回归。

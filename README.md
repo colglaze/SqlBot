@@ -4,7 +4,48 @@ ReleaseSQLBot 是一个面向“项目报告释放”和“原始数据释放”
 
 系统从 MongoDB 获取当前 JSON 规则，并检索上一已批准版本的规则与 SQL 作为基线；它生成能够定位未释放异常数据的新版 SQL 候选，经自动校验和人工审核后，以新版本写回 MongoDB。对于复杂查询，系统可以生成使用会话级临时表的分阶段执行计划，以降低单条 SQL 超时风险。
 
-> 当前状态：**Phase 0 — 文档与边界就绪，尚无可运行服务。**
+> 当前状态：**Phase 1 — Python 3.11 / LangGraph 后端骨架可运行；数据库显式禁用。**
+
+## 快速开始
+
+前置条件：安装 [uv](https://docs.astral.sh/uv/)。项目会依据 `.python-version` 获取并使用 Python 3.11。
+
+```powershell
+uv sync
+uv run release-sql-bot check-config
+uv run release-sql-bot serve
+```
+
+启动后可访问：
+
+- `GET http://127.0.0.1:8000/health`：进程存活；
+- `GET http://127.0.0.1:8000/ready`：运行 LangGraph 就绪图；
+- `GET http://127.0.0.1:8000/docs`：OpenAPI UI。
+
+默认就绪响应中的数据库状态是 `disabled`。这表示数据库集成尚未启用，不表示已经连接 MongoDB。
+
+### 配置
+
+配置通过 `RSB_` 前缀的进程环境变量注入，项目不会自动读取 `.env`：
+
+| 变量 | 默认值 |
+| --- | --- |
+| `RSB_SERVICE_NAME` | `ReleaseSQLBot` |
+| `RSB_ENVIRONMENT` | `local` |
+| `RSB_LOG_LEVEL` | `INFO` |
+| `RSB_API_HOST` | `127.0.0.1` |
+| `RSB_API_PORT` | `8000` |
+| `RSB_DATABASE_ENABLED` | `false` |
+
+真实数据库适配器尚未实现，当前将 `RSB_DATABASE_ENABLED=true` 会在配置阶段明确失败。
+
+### 开发检查
+
+```powershell
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest
+```
 
 ## 为什么需要它
 
@@ -80,6 +121,7 @@ exception_set = unreleased AND NOT(release_eligible)
 - [docs 总索引](docs/README.md)
 - [v1 需求与验收标准](docs/requirements/REQ-20260818-01-release-rule-sql-generator.md)
 - [总体技术设计](docs/architecture/DEV-20260818-01-system-architecture.md)
+- [Phase 1 后端骨架设计](docs/architecture/DEV-20260818-02-backend-skeleton.md)
 - [业务决策与版本生命周期](docs/decisions/BIZ-20260818-01-rule-and-sql-lifecycle.md)
 - [规则 JSON 契约](docs/specs/rule-contract.md)
 - [MongoDB 数据模型](docs/specs/mongodb-data-model.md)
@@ -88,20 +130,18 @@ exception_set = unreleased AND NOT(release_eligible)
 - [阶段路线图](docs/ROADMAP.md)
 - [当前进度](docs/progress/PROG-20260818.md)
 
-## 计划中的技术基线
+## 技术基线
 
-以下是 Phase 1 的建议，不代表依赖已安装：
-
-- Python 3.12、FastAPI、Pydantic；
-- PyMongo 访问 MongoDB；
-- SQLGlot 解析、归一化和检查多种 SQL 方言；
-- 目标数据库适配器负责 `EXPLAIN`、只读试跑和临时表语法；
-- LLM 使用可替换 provider 接口，输出严格结构化结果；
-- pytest 覆盖领域规则、存储契约、SQL 安全和端到端夹具。
+- Python 3.11、uv；
+- LangGraph 负责确定性和 Agent 工作流编排；
+- FastAPI + Uvicorn 提供 HTTP 服务和生命周期；
+- Pydantic Settings 集中读取并校验环境配置；
+- pytest、jsonschema 和 Ruff 提供契约测试与质量门禁；
+- 后续由 MongoDB、LLM 和目标 SQL 数据库适配器实现应用层端口。
 
 ## 当前如何参与
 
-当前没有可运行命令。进入 Phase 1 前，请先确认 REQ 中的开放问题，尤其是目标 SQL 方言、源表 Schema、释放状态字段语义，以及异常集合到底是哪一种定义。确认后再建立后端骨架、配置和测试命令。
+后端骨架已经可运行。下一步可以在 MongoDB 连接信息就绪后实现真实数据库初始化器；规则归一化和 SQL 链路仍需先确认目标 SQL 方言、源表 Schema、释放状态字段，以及异常集合的业务定义。
 
 ## 参考
 

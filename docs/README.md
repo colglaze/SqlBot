@@ -36,6 +36,7 @@
 ### 技术与契约
 
 - [DEV-20260818-01：总体技术设计](architecture/DEV-20260818-01-system-architecture.md)
+- [DEV-20260818-02：Phase 1 后端骨架](architecture/DEV-20260818-02-backend-skeleton.md)
 - [规则 JSON 契约](specs/rule-contract.md)
 - [机器可校验的规则 JSON Schema](specs/release-rule.schema.json)
 - [MongoDB 数据模型](specs/mongodb-data-model.md)
@@ -45,7 +46,7 @@
 ### 交付
 
 - [路线图](ROADMAP.md)
-- [PROG-20260818：Phase 0](progress/PROG-20260818.md)
+- [PROG-20260818：Phase 0/1](progress/PROG-20260818.md)
 
 ## 文档治理规则
 

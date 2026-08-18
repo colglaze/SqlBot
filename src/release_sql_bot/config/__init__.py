@@ -1,0 +1,1 @@
+"""Centralized service configuration."""
