@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/release-sql-bot/release-rule.schema.json",
+  "title": "Release Rule Version",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "rule_id",
+    "project_id",
+    "version",
+    "target",
+    "status",
+    "effective_from",
+    "condition",
+    "metadata"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "rule_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "target": {
+      "enum": ["project_report", "raw_data"]
+    },
+    "status": {
+      "enum": ["draft", "active", "retired"]
+    },
+    "effective_from": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "effective_to": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "condition": {
+      "$ref": "#/$defs/condition_group"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["created_by", "change_reason"],
+      "properties": {
+        "created_by": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "change_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "source_ticket": {
+          "type": ["string", "null"],
+          "maxLength": 256
+        }
+      }
+    }
+  },
+  "$defs": {
+    "condition_group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["combinator", "conditions"],
+      "properties": {
+        "group_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "combinator": {
+          "enum": ["all", "any"]
+        },
+        "negate": {
+          "type": "boolean",
+          "default": false
+        },
+        "conditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/condition_group"
+              },
+              {
+                "$ref": "#/$defs/predicate"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "predicate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "condition_id",
+        "field",
+        "operator",
+        "value_type",
+        "null_policy"
+      ],
+      "properties": {
+        "condition_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "field": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_.]*$"
+        },
+        "operator": {
+          "enum": [
+            "eq",
+            "ne",
+            "gt",
+            "gte",
+            "lt",
+            "lte",
+            "in",
+            "not_in",
+            "between",
+            "like",
+            "is_null",
+            "not_null"
+          ]
+        },
+        "value": {
+          "type": ["string", "number", "integer", "boolean", "array", "null"]
+        },
+        "value_type": {
+          "enum": ["string", "integer", "number", "boolean", "date", "datetime"]
+        },
+        "null_policy": {
+          "enum": ["fail", "pass", "exclude", "error"]
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operator": {
+                "enum": ["is_null", "not_null"]
+              }
+            },
+            "required": ["operator"]
+          },
+          "then": {
+            "not": {
+              "required": ["value"]
+            }
+          },
+          "else": {
+            "required": ["value"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operator": {
+                "enum": ["in", "not_in"]
+              }
+            },
+            "required": ["operator"]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operator": {
+                "const": "between"
+              }
+            },
+            "required": ["operator"]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
