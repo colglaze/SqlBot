@@ -21,4 +21,11 @@ def test_check_config_prints_safe_summary(capsys) -> None:
         "api_host",
         "api_port",
         "database_enabled",
+        "deepseek_api_key_configured",
+        "deepseek_base_url_configured",
+        "deepseek_model",
+        "deepseek_timeout_seconds",
+        "deepseek_max_retries",
+        "sql_dialect",
+        "temp_table_allowed",
     }

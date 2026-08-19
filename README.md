@@ -1,14 +1,22 @@
 # ReleaseSQLBot
 
-ReleaseSQLBot 是一个面向“项目报告释放”和“原始数据释放”规则变更场景的 SQL 生成与审核服务。
+ReleaseSQLBot 是双 Agent 方案中的 Agent 2：消费 RuleReader（Agent 1）导出的单事实 `FactBindingRequest`，在受控的 SQL Server 元数据上下文中生成可审计的 SQL 模板候选。
 
-系统从 MongoDB 获取当前 JSON 规则，并检索上一已批准版本的规则与 SQL 作为基线；它生成能够定位未释放异常数据的新版 SQL 候选，经自动校验和人工审核后，以新版本写回 MongoDB。对于复杂查询，系统可以生成使用会话级临时表的分阶段执行计划，以降低单条 SQL 超时风险。
+> 当前版本：`0.2.0`。Phase 2 的事实绑定输入、就绪门禁和候选模板契约已完成；DeepSeek 调用、SQL 生成、AST 校验、数据库和人工审核尚未实现。
 
-> 当前状态：**Phase 1 — Python 3.11 / LangGraph 后端骨架可运行；数据库显式禁用。**
+## 当前能做什么
+
+- 接受 RuleReader Schema `2.0.0` 的 camelCase 事实绑定请求；
+- 校验事实粒度、参数、使用位置、元数据快照、实体键和关系白名单；
+- 固定首个方言为 SQL Server，并拒绝 `derived` 事实和临时表；
+- 定义始终为 `candidate`、`executable=false`、`reviewStatus=pending` 的 SQL 模板契约；
+- 通过离线测试证明 Agent 1/Agent 2 的 JSON 字段可以对齐。
+
+就绪结果为 `ready` 只表示请求可以进入后续生成阶段，不表示 SQL 已生成、可执行或已批准。
 
 ## 快速开始
 
-前置条件：安装 [uv](https://docs.astral.sh/uv/)。项目会依据 `.python-version` 获取并使用 Python 3.11。
+前置条件：安装 [uv](https://docs.astral.sh/uv/)。项目固定使用 Python `3.11.9`。
 
 ```powershell
 uv sync
@@ -16,15 +24,33 @@ uv run release-sql-bot check-config
 uv run release-sql-bot serve
 ```
 
-启动后可访问：
+默认地址：
 
-- `GET http://127.0.0.1:8000/health`：进程存活；
-- `GET http://127.0.0.1:8000/ready`：运行 LangGraph 就绪图；
-- `GET http://127.0.0.1:8000/docs`：OpenAPI UI。
+- `GET http://127.0.0.1:8010/health`：进程存活；
+- `GET http://127.0.0.1:8010/ready`：运行 LangGraph 就绪图；
+- `POST http://127.0.0.1:8010/api/v1/fact-bindings/validate`：校验事实绑定请求；
+- `GET http://127.0.0.1:8010/docs`：OpenAPI UI。
 
-默认就绪响应中的数据库状态是 `disabled`。这表示数据库集成尚未启用，不表示已经连接 MongoDB。
+数据库状态默认为 `disabled`。这表示数据库集成尚未启用，不表示已经连接 MongoDB。
 
-### 配置
+## 服务边界
+
+```mermaid
+flowchart LR
+    A[RuleReader Schema 2.0 draft] --> B[FactBindingRequest]
+    M[SQL Server metadata snapshot] --> C[Agent 2 readiness gate]
+    B --> C
+    C -->|ready| D[后续 DeepSeek 生成阶段]
+    D --> E[SqlTemplateCandidate]
+    E --> F[后续 AST / 安全 / 试跑 / 人工审核]
+```
+
+- RuleReader 拥有规则理解、表达式、派生事实和规则测试；
+- ReleaseSQLBot 只为 `source`、`aggregate`、`exists` 事实生成 SQL 模板；
+- 两个服务可以共享 MongoDB 实例，但必须使用独立集合和 migration；
+- Agent 2 不修改 RuleReader 的 `rule_versions`，也不把整棵规则翻译为异常集合查询。
+
+## 配置
 
 配置通过 `RSB_` 前缀的进程环境变量注入，项目不会自动读取 `.env`：
 
@@ -34,117 +60,42 @@ uv run release-sql-bot serve
 | `RSB_ENVIRONMENT` | `local` |
 | `RSB_LOG_LEVEL` | `INFO` |
 | `RSB_API_HOST` | `127.0.0.1` |
-| `RSB_API_PORT` | `8000` |
+| `RSB_API_PORT` | `8010` |
 | `RSB_DATABASE_ENABLED` | `false` |
+| `RSB_DEEPSEEK_API_KEY` | 未配置 |
+| `RSB_DEEPSEEK_BASE_URL` | 未配置 |
+| `RSB_DEEPSEEK_MODEL` | `deepseek-v4-flash` |
+| `RSB_DEEPSEEK_TIMEOUT_SECONDS` | `90` |
+| `RSB_DEEPSEEK_MAX_RETRIES` | `2` |
+| `RSB_SQL_DIALECT` | `sqlserver` |
+| `RSB_TEMP_TABLE_ALLOWED` | `false` |
 
-真实数据库适配器尚未实现，当前将 `RSB_DATABASE_ENABLED=true` 会在配置阶段明确失败。
+当前将 `RSB_DATABASE_ENABLED=true` 或 `RSB_TEMP_TABLE_ALLOWED=true` 会在配置阶段明确失败。安全摘要只说明 DeepSeek 凭据是否已配置，不输出密钥。
 
-### 开发检查
+## 开发检查
 
 ```powershell
+uv run python --version
 uv run ruff check .
 uv run ruff format --check .
 uv run pytest
 ```
 
-## 为什么需要它
+## 安全线
 
-释放条件经常变化，人工在旧 SQL 上持续打补丁容易造成：
-
-- 新规则遗漏、旧条件残留或 `AND/OR/NOT` 语义偏差；
-- SQL 与采用的规则版本无法追溯；
-- 查询逐渐复杂，执行计划恶化并超时；
-- 未经充分验证的 SQL 被直接用于生产；
-- 审核结论和历史版本被覆盖，难以回滚或复盘。
-
-本项目把“生成 SQL”设计为一条可审计的工程流水线，而不是一次自由文本问答。
-
-## 核心链路
-
-```mermaid
-flowchart LR
-    A[MongoDB 当前规则] --> D[规则归一化与差异分析]
-    B[上一已批准规则] --> D
-    C[上一已批准 SQL] --> E[受约束 SQL 生成]
-    D --> E
-    P[项目上下文/源库 Schema/SQL 方言] --> E
-    E --> F[静态校验与条件覆盖]
-    F --> G[EXPLAIN / 受限试跑]
-    G --> H[人工审核]
-    H -->|批准| I[以新版本写回 MongoDB]
-    H -->|驳回| E
-```
-
-上一版本只是生成基线，不是正确性依据；当前规则、当前 Schema 和审核结果才决定候选 SQL 是否可以发布。
-
-## v1 范围
-
-- 管理两类目标：`project_report` 和 `raw_data`；
-- 读取并校验版本化 JSON 规则；
-- 获取上一已批准规则和 SQL，生成结构化差异；
-- 生成参数化的单查询方案或临时表分阶段方案；
-- 对 SQL 做 AST、访问范围、只读性、条件覆盖和性能验证；
-- 提供人工批准/驳回流程；
-- 将批准的 SQL、血缘、校验报告和审核记录以业务载荷不可变的新版本写回 MongoDB；
-- 支持按项目、目标类型和版本回溯。
-
-## v1 不做
-
-- 自动决定或修改业务释放规则；
-- 未经人工批准自动发布或执行生产 SQL；
-- 通用 ChatBI、图表分析或任意自然语言问数；
-- 自动释放项目报告或原始数据；
-- 跨任意数据源探索 Schema；
-- 永久中间表、生产库写操作或自动索引变更。
-
-## 关键安全线
-
-- 模型只生成候选物，不能批准自己的结果；
-- 规则值通过绑定参数传入，不直接拼接；
-- 默认仅允许 `SELECT`/CTE；分阶段计划只额外允许会话级临时表；
-- 使用表/列白名单、只读账号、查询超时、结果上限和全链路审计；
-- SQL 在批准后按内容哈希锁定，执行前再次核对哈希；
-- 缺少 SQL 方言、当前 Schema 或释放状态映射时停止生成，不让模型猜测。
-
-## 关于“未释放异常数据”的当前解释
-
-Phase 0 暂将目标集合定义为：
-
-```text
-exception_set = unreleased AND NOT(release_eligible)
-```
-
-即“仍未释放，且不满足当前释放条件”的记录。原始需求中的措辞可能也可解释为“已经满足条件但尚未释放”；该语义已列为首要业务确认项，在确认前不会进入生产实现。详见 [业务决策基线](docs/decisions/BIZ-20260818-01-rule-and-sql-lifecycle.md)。
+- LLM 输出永远是不可信候选物，不能批准自己的结果；
+- SQL 值必须通过绑定参数传入，禁止直接拼接业务值；
+- SQL Server 访问范围必须来自版本化元数据快照和显式关系白名单；
+- 首个切片只允许单条只读候选查询，临时表、DDL、DML、生产执行均被排除；
+- SQL 只有在后续 AST、安全、受限试跑和人工审核全部通过后才可能发布。
 
 ## 文档导航
 
-- [docs 总索引](docs/README.md)
-- [v1 需求与验收标准](docs/requirements/REQ-20260818-01-release-rule-sql-generator.md)
-- [总体技术设计](docs/architecture/DEV-20260818-01-system-architecture.md)
-- [Phase 1 后端骨架设计](docs/architecture/DEV-20260818-02-backend-skeleton.md)
-- [业务决策与版本生命周期](docs/decisions/BIZ-20260818-01-rule-and-sql-lifecycle.md)
-- [规则 JSON 契约](docs/specs/rule-contract.md)
-- [MongoDB 数据模型](docs/specs/mongodb-data-model.md)
-- [SQL 生成与人工审核流程](docs/workflows/sql-generation-and-review.md)
-- [超时与临时表策略](docs/operations/query-performance.md)
+- [文档总索引](docs/README.md)
+- [当前需求：事实绑定输入与候选模板契约](docs/requirements/REQ-20260819-01-fact-binding-intake.md)
+- [双 Agent 职责决策](docs/decisions/BIZ-20260819-01-agent2-role-alignment.md)
+- [事实绑定技术方案](docs/architecture/DEV-20260819-01-fact-binding-contract.md)
 - [阶段路线图](docs/ROADMAP.md)
-- [当前进度](docs/progress/PROG-20260818.md)
+- [当前进度](docs/progress/PROG-20260819.md)
 
-## 技术基线
-
-- Python 3.11、uv；
-- LangGraph 负责确定性和 Agent 工作流编排；
-- FastAPI + Uvicorn 提供 HTTP 服务和生命周期；
-- Pydantic Settings 集中读取并校验环境配置；
-- pytest、jsonschema 和 Ruff 提供契约测试与质量门禁；
-- 后续由 MongoDB、LLM 和目标 SQL 数据库适配器实现应用层端口。
-
-## 当前如何参与
-
-后端骨架已经可运行。下一步可以在 MongoDB 连接信息就绪后实现真实数据库初始化器；规则归一化和 SQL 链路仍需先确认目标 SQL 方言、源表 Schema、释放状态字段，以及异常集合的业务定义。
-
-## 参考
-
-- [如何从 0 到 1 Vibe Coding 一个项目，并长期维护](https://www.codefather.cn/post/2077996578576056322)：采用其文档先行、范围冻结、Phase/DoD 和进度可追溯思路。
-- [DataEase SQLBot](https://github.com/dataease/SQLBot)：参考 Text-to-SQL、SQL 示例校准和安全可控理念；本项目不复制其源码，也不扩展为通用 ChatBI。
-- [OpenAI 官方 AGENTS.md 文档](https://developers.openai.com/codex/guides/agents-md)：用于仓库级 Agent 工作约定的组织方式。
+旧的“整规则异常集合 SQL”文档作为历史记录保留，但已被当前 REQ/BIZ/DEV 替代，不再指导新实现。

@@ -1,6 +1,7 @@
 # SQL 生成与人工审核流程
 
-- 状态：`proposed`
+- 状态：`superseded`
+- 替代决策：[BIZ-20260819-01](../decisions/BIZ-20260819-01-agent2-role-alignment.md)
 - 关联：[REQ-20260818-01](../requirements/REQ-20260818-01-release-rule-sql-generator.md)
 
 ## 1. 输入包

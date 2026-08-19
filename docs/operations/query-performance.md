@@ -1,6 +1,7 @@
 # 查询性能与临时表策略
 
-- 状态：`proposed`
+- 状态：`superseded`
+- 替代决策：[BIZ-20260819-01](../decisions/BIZ-20260819-01-agent2-role-alignment.md)
 - 适用范围：候选 SQL 的性能验证和分阶段计划
 
 临时表不是默认答案。系统先证明单查询在预算内；只有复杂度或执行计划显示明显风险时，才生成受控的 `staged_script`。

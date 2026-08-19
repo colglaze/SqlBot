@@ -1,6 +1,7 @@
 # DEV-20260818-01：总体技术设计
 
-- 状态：`proposed`
+- 状态：`superseded`
+- 替代方案：[DEV-20260819-01](DEV-20260819-01-fact-binding-contract.md)
 - 创建日期：2026-08-18
 - 实现需求：[REQ-20260818-01](../requirements/REQ-20260818-01-release-rule-sql-generator.md)
 - 受业务决策约束：[BIZ-20260818-01](../decisions/BIZ-20260818-01-rule-and-sql-lifecycle.md)

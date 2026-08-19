@@ -1,6 +1,7 @@
 # MongoDB 数据模型
 
-- 状态：`proposed`
+- 状态：`superseded`
+- 替代决策：[BIZ-20260819-01](../decisions/BIZ-20260819-01-agent2-role-alignment.md)
 - 关联：[REQ-20260818-01](../requirements/REQ-20260818-01-release-rule-sql-generator.md)
 
 MongoDB 保存版本和审计事实，不保存生产数据库凭证明文。集合名为建议值，Phase 1 应通过配置加统一前缀。

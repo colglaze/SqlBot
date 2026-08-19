@@ -9,11 +9,17 @@ from fastapi import FastAPI, HTTPException, Request, status
 from pydantic import BaseModel
 
 from release_sql_bot import __version__
+from release_sql_bot.application.bindings import validate_binding_readiness
 from release_sql_bot.application.readiness import build_readiness_graph
 from release_sql_bot.application.runtime import RuntimeContainer
 from release_sql_bot.config.logging import configure_logging
 from release_sql_bot.config.settings import Settings, get_settings
+from release_sql_bot.domain.fact_bindings import (
+    BindingReadiness,
+    ValidateFactBindingRequest,
+)
 from release_sql_bot.infrastructure.database import build_database_initializer
+from release_sql_bot.runtime import ensure_supported_python
 
 
 class HealthResponse(BaseModel):
@@ -33,6 +39,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        ensure_supported_python()
         configure_logging(resolved_settings.log_level)
         database = build_database_initializer(resolved_settings)
         await database.initialize()
@@ -75,5 +82,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail=response.model_dump(),
             )
         return response
+
+    @app.post(
+        "/api/v1/fact-bindings/validate",
+        response_model=BindingReadiness,
+        tags=["fact-bindings"],
+    )
+    async def validate_fact_binding(payload: ValidateFactBindingRequest) -> BindingReadiness:
+        return validate_binding_readiness(payload)
 
     return app

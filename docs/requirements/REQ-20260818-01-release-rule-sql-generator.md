@@ -1,6 +1,7 @@
 # REQ-20260818-01：释放规则 SQL 生成器
 
-- 状态：`draft`
+- 状态：`superseded`
+- 替代需求：[REQ-20260819-01](REQ-20260819-01-fact-binding-intake.md)
 - 创建日期：2026-08-18
 - 关联决策：[BIZ-20260818-01](../decisions/BIZ-20260818-01-rule-and-sql-lifecycle.md)
 - 技术方案：[DEV-20260818-01](../architecture/DEV-20260818-01-system-architecture.md)

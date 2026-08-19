@@ -1,6 +1,7 @@
 # BIZ-20260818-01：规则与 SQL 生命周期
 
-- 状态：`proposed`
+- 状态：`superseded`
+- 替代决策：[BIZ-20260819-01](BIZ-20260819-01-agent2-role-alignment.md)
 - 创建日期：2026-08-18
 - 影响需求：[REQ-20260818-01](../requirements/REQ-20260818-01-release-rule-sql-generator.md)
 

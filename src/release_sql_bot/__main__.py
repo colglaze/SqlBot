@@ -10,6 +10,7 @@ import uvicorn
 
 from release_sql_bot.api.app import create_app
 from release_sql_bot.config.settings import get_settings
+from release_sql_bot.runtime import ensure_supported_python
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    ensure_supported_python()
     args = build_parser().parse_args(argv)
     settings = get_settings()
 
