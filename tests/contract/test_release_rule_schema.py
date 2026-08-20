@@ -6,6 +6,8 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator, FormatChecker
 
+from release_sql_bot.domain.rule_analysis import ReleaseRule
+
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_PATH = ROOT / "docs" / "specs" / "release-rule.schema.json"
 RULE_DOC_PATH = ROOT / "docs" / "specs" / "rule-contract.md"
@@ -28,3 +30,4 @@ def test_documented_rule_example_matches_schema() -> None:
     errors = sorted(validator.iter_errors(example), key=lambda error: list(error.path))
 
     assert errors == []
+    ReleaseRule.model_validate(example)

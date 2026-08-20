@@ -28,6 +28,16 @@
 - `SqlTemplateCandidate` 固定为不可执行、待审核候选；
 - API、契约和领域测试完全离线。
 
+### Phase 2B：确定性规则变更分析
+
+状态：**完成**
+
+- 基于历史 `release-rule.schema.json` 契约生成 canonical JSON 和内容哈希；
+- 生成新增、删除、修改及逻辑结构变化的机器可读 diff；
+- 重复 `condition_id` 被拒绝，无基线被显式标记；
+- 不接入 MongoDB，不改变事实级 Agent 2 主流程；
+- 异常集合语义或真实 Schema 缺失时，整规则 SQL 规划保持阻塞。
+
 ## Phase 3：DeepSeek 候选 SQL 生成
 
 状态：**待新 REQ/DEV**

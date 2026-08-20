@@ -4,10 +4,10 @@
 
 ## 阅读顺序
 
-1. [当前进度](progress/PROG-20260819.md)
-2. [当前需求](requirements/REQ-20260819-01-fact-binding-intake.md)
-3. [业务决策](decisions/BIZ-20260819-01-agent2-role-alignment.md)
-4. [技术设计](architecture/DEV-20260819-01-fact-binding-contract.md)
+1. [当前进度](progress/PROG-20260820.md)
+2. [规则分析需求](requirements/REQ-20260820-01-rule-change-analysis.md)
+3. [规则分析边界决策](decisions/BIZ-20260820-01-rule-analysis-boundary.md)
+4. [规则分析技术设计](architecture/DEV-20260820-01-rule-change-analysis.md)
 5. [路线图](ROADMAP.md)
 
 ## 目录职责
@@ -28,14 +28,19 @@
 
 ### 产品与决策
 
+- [REQ-20260820-01：规则规范化、内容哈希与结构化差异](requirements/REQ-20260820-01-rule-change-analysis.md)
+- [BIZ-20260820-01：规则分析能力边界与显式阻塞](decisions/BIZ-20260820-01-rule-analysis-boundary.md)
 - [REQ-20260819-01：Agent 2 事实绑定输入与候选模板契约](requirements/REQ-20260819-01-fact-binding-intake.md)
 - [BIZ-20260819-01：Agent 2 职责与双服务边界](decisions/BIZ-20260819-01-agent2-role-alignment.md)
 
 ### 技术与交付
 
+- [DEV-20260820-01：规则规范化、哈希与差异领域设计](architecture/DEV-20260820-01-rule-change-analysis.md)
 - [DEV-20260819-01：事实绑定输入与 SQL 候选契约](architecture/DEV-20260819-01-fact-binding-contract.md)
 - [DEV-20260818-02：Phase 1 后端骨架](architecture/DEV-20260818-02-backend-skeleton.md)
+- [规则 JSON Schema 1.0（仅用于确定性规则分析）](specs/release-rule.schema.json)
 - [路线图](ROADMAP.md)
+- [PROG-20260820：规则规范化、哈希与结构化差异](progress/PROG-20260820.md)
 - [PROG-20260819：事实绑定契约切片](progress/PROG-20260819.md)
 
 ## 历史文档
@@ -45,7 +50,7 @@
 - [REQ-20260818-01：整规则释放 SQL 生成器](requirements/REQ-20260818-01-release-rule-sql-generator.md)
 - [BIZ-20260818-01：旧规则与 SQL 生命周期](decisions/BIZ-20260818-01-rule-and-sql-lifecycle.md)
 - [DEV-20260818-01：旧总体技术设计](architecture/DEV-20260818-01-system-architecture.md)
-- [旧规则 JSON 契约](specs/rule-contract.md)与[旧 JSON Schema](specs/release-rule.schema.json)
+- [旧规则语义说明](specs/rule-contract.md)；其中 JSON Schema 1.0 仅被新规则分析需求复用，不恢复旧 SQL 生成语义
 - [旧 MongoDB 数据模型](specs/mongodb-data-model.md)
 - [旧 SQL 生成与审核流程](workflows/sql-generation-and-review.md)
 - [旧临时表策略](operations/query-performance.md)

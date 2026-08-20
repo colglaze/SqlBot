@@ -146,3 +146,40 @@ def valid_sql_candidate() -> dict[str, Any]:
             "promptVersion": "sql-template-v1",
         },
     }
+
+
+def valid_release_rule() -> dict[str, Any]:
+    return {
+        "schema_version": "1.0",
+        "rule_id": "report-release-rule",
+        "project_id": "project-001",
+        "version": 3,
+        "target": "project_report",
+        "status": "active",
+        "effective_from": "2026-08-18T00:00:00+08:00",
+        "condition": {
+            "combinator": "all",
+            "conditions": [
+                {
+                    "condition_id": "report.finalized",
+                    "field": "report_status",
+                    "operator": "eq",
+                    "value": "FINAL",
+                    "value_type": "string",
+                    "null_policy": "fail",
+                },
+                {
+                    "condition_id": "report.qc_passed",
+                    "field": "qc_status",
+                    "operator": "in",
+                    "value": ["PASS", "WAIVED"],
+                    "value_type": "string",
+                    "null_policy": "fail",
+                },
+            ],
+        },
+        "metadata": {
+            "created_by": "rule-owner@example.com",
+            "change_reason": "Allow approved QC waivers",
+        },
+    }

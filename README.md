@@ -2,7 +2,7 @@
 
 ReleaseSQLBot 是双 Agent 方案中的 Agent 2：消费 RuleReader（Agent 1）导出的单事实 `FactBindingRequest`，在受控的 SQL Server 元数据上下文中生成可审计的 SQL 模板候选。
 
-> 当前版本：`0.2.0`。Phase 2 的事实绑定输入、就绪门禁和候选模板契约已完成；DeepSeek 调用、SQL 生成、AST 校验、数据库和人工审核尚未实现。
+> 当前版本：`0.2.0`。Phase 2 的事实绑定契约和确定性规则变更分析已完成；DeepSeek 调用、SQL 生成、AST 校验、数据库和人工审核尚未实现。
 
 ## 当前能做什么
 
@@ -10,6 +10,8 @@ ReleaseSQLBot 是双 Agent 方案中的 Agent 2：消费 RuleReader（Agent 1）
 - 校验事实粒度、参数、使用位置、元数据快照、实体键和关系白名单；
 - 固定首个方言为 SQL Server，并拒绝 `derived` 事实和临时表；
 - 定义始终为 `candidate`、`executable=false`、`reviewStatus=pending` 的 SQL 模板契约；
+- 提供与存储无关的规则 canonicalization、SHA-256 内容哈希和结构化版本 diff；
+- 缺少异常集合语义或真实 Schema 时显式阻塞整规则 SQL 规划，不提供生产默认值；
 - 通过离线测试证明 Agent 1/Agent 2 的 JSON 字段可以对齐。
 
 就绪结果为 `ready` 只表示请求可以进入后续生成阶段，不表示 SQL 已生成、可执行或已批准。
@@ -93,9 +95,11 @@ uv run pytest
 
 - [文档总索引](docs/README.md)
 - [当前需求：事实绑定输入与候选模板契约](docs/requirements/REQ-20260819-01-fact-binding-intake.md)
+- [规则分析需求](docs/requirements/REQ-20260820-01-rule-change-analysis.md)
+- [规则分析技术方案](docs/architecture/DEV-20260820-01-rule-change-analysis.md)
 - [双 Agent 职责决策](docs/decisions/BIZ-20260819-01-agent2-role-alignment.md)
 - [事实绑定技术方案](docs/architecture/DEV-20260819-01-fact-binding-contract.md)
 - [阶段路线图](docs/ROADMAP.md)
-- [当前进度](docs/progress/PROG-20260819.md)
+- [当前进度](docs/progress/PROG-20260820.md)
 
-旧的“整规则异常集合 SQL”文档作为历史记录保留，但已被当前 REQ/BIZ/DEV 替代，不再指导新实现。
+旧的“整规则异常集合 SQL”文档作为历史记录保留，不再指导 SQL 生成；其中规则 JSON Schema 1.0 只被复用于确定性的 canonicalization、哈希和 diff。
