@@ -1,4 +1,4 @@
-"""Deterministic readiness gate before Agent 2 SQL generation."""
+"""Legacy V1 readiness gate retained for historical candidate tests only."""
 
 from __future__ import annotations
 

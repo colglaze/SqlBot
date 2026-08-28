@@ -1,0 +1,2026 @@
+{
+  "$defs": {
+    "AggregationFunction": {
+      "enum": [
+        "sum",
+        "count",
+        "countDistinct",
+        "avg",
+        "min",
+        "max"
+      ],
+      "title": "AggregationFunction",
+      "type": "string"
+    },
+    "AggregationMode": {
+      "enum": [
+        "none",
+        "precomputed",
+        "compute",
+        "exists",
+        "unresolved"
+      ],
+      "title": "AggregationMode",
+      "type": "string"
+    },
+    "AggregationRequirementV2": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "distinct": {
+                "type": "null"
+              },
+              "function": {
+                "type": "null"
+              },
+              "groupByFieldIds": {
+                "maxItems": 0
+              },
+              "inputFieldIds": {
+                "maxItems": 0
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "compute"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "distinct": {
+                "type": "boolean"
+              },
+              "function": {
+                "type": "string"
+              },
+              "inputFieldIds": {
+                "minItems": 1
+              },
+              "resolutionStatus": {
+                "enum": [
+                  "declared",
+                  "candidate"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "none"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "resolutionStatus": {
+                "const": "declared"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "precomputed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "resolutionStatus": {
+                "const": "candidate"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "exists"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "resolutionStatus": {
+                "const": "declared"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "unresolved"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "resolutionStatus": {
+                "const": "unresolved"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "distinct": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Distinct behavior for a computed aggregate, otherwise null.",
+          "title": "Distinct"
+        },
+        "evidenceIds": {
+          "description": "Evidence registry IDs supporting aggregation semantics.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidenceids",
+          "type": "array"
+        },
+        "function": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AggregationFunction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Controlled aggregate function, only for mode=compute."
+        },
+        "groupByFieldIds": {
+          "description": "Field references defining the computed aggregate grain.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Groupbyfieldids",
+          "type": "array"
+        },
+        "inputFieldIds": {
+          "description": "Input field references, only for a computed aggregate.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Inputfieldids",
+          "type": "array"
+        },
+        "mode": {
+          "$ref": "#/$defs/AggregationMode",
+          "description": "Whether the fact is direct, precomputed, computed, existential, or unresolved."
+        },
+        "resolutionStatus": {
+          "$ref": "#/$defs/ResolutionStatus",
+          "description": "Strength of the declared aggregation semantics."
+        }
+      },
+      "required": [
+        "mode",
+        "function",
+        "inputFieldIds",
+        "groupByFieldIds",
+        "distinct",
+        "resolutionStatus",
+        "evidenceIds"
+      ],
+      "title": "AggregationRequirementV2",
+      "type": "object"
+    },
+    "BindableFactV2": {
+      "additionalProperties": false,
+      "properties": {
+        "allowedValues": {
+          "description": "Closed business values when declared; empty means no closed list.",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                },
+                "type": "array"
+              }
+            ]
+          },
+          "title": "Allowedvalues",
+          "type": "array"
+        },
+        "dataType": {
+          "$ref": "#/$defs/FactDataType",
+          "description": "Logical scalar result type."
+        },
+        "defaultValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Declared default value, or null when no default is authorized.",
+          "title": "Defaultvalue"
+        },
+        "derivation": {
+          "const": null,
+          "description": "Always null because derived facts never enter SQL binding.",
+          "title": "Derivation",
+          "type": "null"
+        },
+        "description": {
+          "description": "Business definition of the fact; never executable SQL.",
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "factCode": {
+          "description": "Stable dotted business fact identifier.",
+          "maxLength": 160,
+          "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+$",
+          "title": "Factcode",
+          "type": "string"
+        },
+        "factKind": {
+          "description": "Bindable fact kind; derived facts are intentionally excluded.",
+          "enum": [
+            "source",
+            "aggregate",
+            "exists"
+          ],
+          "title": "Factkind",
+          "type": "string"
+        },
+        "grain": {
+          "description": "Business grain represented by one fact value.",
+          "maxLength": 100,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Grain",
+          "type": "string"
+        },
+        "name": {
+          "description": "Human-readable fact name.",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "nullPolicy": {
+          "$ref": "#/$defs/NullPolicy",
+          "description": "Rule behavior when the fact is null or missing."
+        },
+        "nullable": {
+          "description": "Whether the fact result may be null.",
+          "title": "Nullable",
+          "type": "boolean"
+        },
+        "parameters": {
+          "description": "Runtime business parameters required to retrieve the fact.",
+          "items": {
+            "$ref": "#/$defs/BindingFactParameterV2"
+          },
+          "minItems": 1,
+          "title": "Parameters",
+          "type": "array"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Business unit such as CNY, or null when no unit applies.",
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "factCode",
+        "name",
+        "factKind",
+        "dataType",
+        "description",
+        "nullable",
+        "nullPolicy",
+        "grain",
+        "parameters",
+        "unit",
+        "allowedValues",
+        "defaultValue",
+        "derivation"
+      ],
+      "title": "BindableFactV2",
+      "type": "object"
+    },
+    "BindingEvidenceV2": {
+      "additionalProperties": false,
+      "properties": {
+        "evidenceId": {
+          "description": "Request-local evidence identifier.",
+          "maxLength": 200,
+          "pattern": "^[a-z][A-Za-z0-9_.:-]*$",
+          "title": "Evidenceid",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/EvidenceKind",
+          "description": "Type of structured rule evidence."
+        },
+        "sourcePath": {
+          "description": "RFC 6901 JSON Pointer into the immutable RuleParseResultV2 document.",
+          "maxLength": 1000,
+          "pattern": "^/",
+          "title": "Sourcepath",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidenceId",
+        "kind",
+        "sourcePath"
+      ],
+      "title": "BindingEvidenceV2",
+      "type": "object"
+    },
+    "BindingFactParameterV2": {
+      "additionalProperties": false,
+      "properties": {
+        "dataType": {
+          "$ref": "#/$defs/FactDataType",
+          "description": "Logical parameter value type."
+        },
+        "description": {
+          "description": "Business meaning of the parameter; never a SQL expression.",
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "description": "Stable camelCase runtime parameter name used by the fact query.",
+          "maxLength": 100,
+          "pattern": "^[a-z][A-Za-z0-9]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "description": "Whether every fact lookup must receive this parameter.",
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "dataType",
+        "description",
+        "required"
+      ],
+      "title": "BindingFactParameterV2",
+      "type": "object"
+    },
+    "BindingMappingCandidateV2": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "viewActive": {
+                "type": "null"
+              },
+              "viewField": {
+                "type": "null"
+              },
+              "viewName": {
+                "type": "null"
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "mappingStatus": {
+                "const": "mapped"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "viewField": {
+                "type": "string"
+              },
+              "viewName": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "factCode": {
+          "description": "Fact code to which this mapping hint belongs.",
+          "maxLength": 160,
+          "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+$",
+          "title": "Factcode",
+          "type": "string"
+        },
+        "mappingStatus": {
+          "$ref": "#/$defs/MappingStatus",
+          "description": "Whether a catalog field was matched."
+        },
+        "note": {
+          "description": "Human-review note without executable SQL.",
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Note",
+          "type": "string"
+        },
+        "reviewStatus": {
+          "const": "candidate",
+          "description": "Mapping is never promoted to approved by RuleReader.",
+          "title": "Reviewstatus",
+          "type": "string"
+        },
+        "viewActive": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Catalog activity hint, or null.",
+          "title": "Viewactive"
+        },
+        "viewField": {
+          "anyOf": [
+            {
+              "maxLength": 150,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Candidate output field, or null when unresolved.",
+          "title": "Viewfield"
+        },
+        "viewName": {
+          "anyOf": [
+            {
+              "maxLength": 150,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Candidate view/relation name, or null when unresolved.",
+          "title": "Viewname"
+        }
+      },
+      "required": [
+        "factCode",
+        "mappingStatus",
+        "viewName",
+        "viewField",
+        "viewActive",
+        "reviewStatus",
+        "note"
+      ],
+      "title": "BindingMappingCandidateV2",
+      "type": "object"
+    },
+    "BindingParserProvenanceV2": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "description": "Configured model ID.",
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Model",
+          "type": "string"
+        },
+        "parserVersion": {
+          "description": "RuleReader parser application version.",
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Parserversion",
+          "type": "string"
+        },
+        "promptVersion": {
+          "description": "Prompt contract version used to produce the rule draft.",
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Promptversion",
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "#/$defs/ParserProvider",
+          "description": "DeepSeek generation or explicitly reviewed offline import provenance."
+        }
+      },
+      "required": [
+        "parserVersion",
+        "promptVersion",
+        "provider",
+        "model"
+      ],
+      "title": "BindingParserProvenanceV2",
+      "type": "object"
+    },
+    "BindingProvenanceV2": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence": {
+          "description": "Evidence registry referenced throughout this request.",
+          "items": {
+            "$ref": "#/$defs/BindingEvidenceV2"
+          },
+          "minItems": 2,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "generatedAt": {
+          "description": "UTC timestamp of the source rule draft.",
+          "format": "date-time",
+          "title": "Generatedat",
+          "type": "string"
+        },
+        "parser": {
+          "$ref": "#/$defs/BindingParserProvenanceV2",
+          "description": "Parser and model identity."
+        },
+        "source": {
+          "$ref": "#/$defs/BindingSourceProvenanceV2",
+          "description": "Original rule source identity."
+        }
+      },
+      "required": [
+        "source",
+        "parser",
+        "generatedAt",
+        "evidence"
+      ],
+      "title": "BindingProvenanceV2",
+      "type": "object"
+    },
+    "BindingRuleRefV2": {
+      "additionalProperties": false,
+      "properties": {
+        "ruleId": {
+          "description": "Stable rule identifier.",
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Ruleid",
+          "type": "string"
+        },
+        "ruleVersion": {
+          "description": "Exact immutable RuleReader draft version.",
+          "maxLength": 220,
+          "minLength": 1,
+          "title": "Ruleversion",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "const": "2.0.0",
+          "description": "Rule document schema version, independent of contractVersion.",
+          "title": "Schemaversion",
+          "type": "string"
+        },
+        "sourceSha256": {
+          "description": "SHA-256 of the normalized source document.",
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sourcesha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ruleId",
+        "ruleVersion",
+        "schemaVersion",
+        "sourceSha256"
+      ],
+      "title": "BindingRuleRefV2",
+      "type": "object"
+    },
+    "BindingSourceProvenanceV2": {
+      "additionalProperties": false,
+      "properties": {
+        "characterCount": {
+          "description": "Normalized source character count.",
+          "minimum": 1,
+          "title": "Charactercount",
+          "type": "integer"
+        },
+        "relativePath": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Path relative to the configured document root, or null for inline input.",
+          "title": "Relativepath"
+        },
+        "sha256": {
+          "description": "SHA-256 of normalized source content.",
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "sourceName": {
+          "description": "Original local or inline source file name.",
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Sourcename",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sourceName",
+        "relativePath",
+        "sha256",
+        "characterCount"
+      ],
+      "title": "BindingSourceProvenanceV2",
+      "type": "object"
+    },
+    "BindingUncertaintyV2": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "$ref": "#/$defs/UncertaintyCategory",
+          "description": "Affected query requirement category."
+        },
+        "code": {
+          "description": "Stable machine-readable uncertainty code.",
+          "maxLength": 120,
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "title": "Code",
+          "type": "string"
+        },
+        "evidenceIds": {
+          "description": "Evidence registry IDs that establish the uncertainty.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidenceids",
+          "type": "array"
+        },
+        "fieldPath": {
+          "description": "JSON Pointer to the affected field in this binding request.",
+          "maxLength": 1000,
+          "pattern": "^/",
+          "title": "Fieldpath",
+          "type": "string"
+        },
+        "impact": {
+          "$ref": "#/$defs/UncertaintyImpact",
+          "description": "blocking prevents safe SQL generation; warning requires review."
+        },
+        "reason": {
+          "description": "Why RuleReader cannot make a stronger assertion.",
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "resolutionHint": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Non-executable guidance for resolving the uncertainty.",
+          "title": "Resolutionhint"
+        },
+        "uncertaintyId": {
+          "description": "Stable request-local uncertainty identifier.",
+          "maxLength": 200,
+          "pattern": "^[a-z][A-Za-z0-9_.:-]*$",
+          "title": "Uncertaintyid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "uncertaintyId",
+        "code",
+        "category",
+        "fieldPath",
+        "impact",
+        "reason",
+        "resolutionHint",
+        "evidenceIds"
+      ],
+      "title": "BindingUncertaintyV2",
+      "type": "object"
+    },
+    "EntityRequirementV2": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "keyResolutionStatus": {
+                "const": "candidate"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "keyParameters": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "keyResolutionStatus": {
+                "const": "unresolved"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "keyParameters": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "entityType": {
+          "description": "Logical business entity to which this fact belongs.",
+          "maxLength": 100,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Entitytype",
+          "type": "string"
+        },
+        "evidenceIds": {
+          "description": "Evidence registry IDs supporting the entity requirement.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidenceids",
+          "type": "array"
+        },
+        "grain": {
+          "description": "Logical grain at which one scalar fact value is returned.",
+          "maxLength": 100,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Grain",
+          "type": "string"
+        },
+        "keyParameters": {
+          "description": "Fact parameters confirmed as entity identity keys; empty when unresolved.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Keyparameters",
+          "type": "array"
+        },
+        "keyResolutionStatus": {
+          "description": "Whether entity identity parameters are known or unresolved.",
+          "enum": [
+            "candidate",
+            "unresolved"
+          ],
+          "title": "Keyresolutionstatus",
+          "type": "string"
+        },
+        "resolutionStatus": {
+          "const": "declared",
+          "description": "Entity semantics come directly from the validated rule draft.",
+          "title": "Resolutionstatus",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entityType",
+        "grain",
+        "keyParameters",
+        "resolutionStatus",
+        "keyResolutionStatus",
+        "evidenceIds"
+      ],
+      "title": "EntityRequirementV2",
+      "type": "object"
+    },
+    "EvidenceKind": {
+      "enum": [
+        "factDeclaration",
+        "conditionUsage",
+        "mappingCandidate",
+        "testCase"
+      ],
+      "title": "EvidenceKind",
+      "type": "string"
+    },
+    "FactDataType": {
+      "enum": [
+        "string",
+        "integer",
+        "number",
+        "boolean",
+        "date",
+        "datetime",
+        "enum",
+        "money",
+        "list",
+        "unknown"
+      ],
+      "title": "FactDataType",
+      "type": "string"
+    },
+    "FactExampleV2": {
+      "additionalProperties": false,
+      "properties": {
+        "evidenceIds": {
+          "description": "Evidence registry IDs for the source test case.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidenceids",
+          "type": "array"
+        },
+        "expectedRuleResult": {
+          "description": "Expected result of the full rule, not merely this fact.",
+          "enum": [
+            "pass",
+            "fail"
+          ],
+          "title": "Expectedruleresult",
+          "type": "string"
+        },
+        "testCaseId": {
+          "description": "Rule test-case ID.",
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Testcaseid",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Fact value supplied by the test case.",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "testCaseId",
+        "value",
+        "expectedRuleResult",
+        "evidenceIds"
+      ],
+      "title": "FactExampleV2",
+      "type": "object"
+    },
+    "FactResultRequirementV2": {
+      "additionalProperties": false,
+      "properties": {
+        "cardinality": {
+          "const": "scalar",
+          "description": "Exactly one value is expected per entity/parameter tuple.",
+          "title": "Cardinality",
+          "type": "string"
+        },
+        "columnName": {
+          "const": "fact_value",
+          "description": "Required SQL candidate output alias.",
+          "title": "Columnname",
+          "type": "string"
+        },
+        "dataType": {
+          "$ref": "#/$defs/FactDataType",
+          "description": "Expected logical result type."
+        },
+        "nullPolicy": {
+          "$ref": "#/$defs/NullPolicy",
+          "description": "Rule behavior for a null or missing result."
+        },
+        "nullable": {
+          "description": "Whether the scalar result may be null.",
+          "title": "Nullable",
+          "type": "boolean"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Expected result unit, or null.",
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "columnName",
+        "dataType",
+        "cardinality",
+        "nullable",
+        "nullPolicy",
+        "unit"
+      ],
+      "title": "FactResultRequirementV2",
+      "type": "object"
+    },
+    "FactUsageV2": {
+      "additionalProperties": false,
+      "properties": {
+        "conditionId": {
+          "description": "Rule condition ID.",
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Conditionid",
+          "type": "string"
+        },
+        "conditionPath": {
+          "description": "Slash-separated logical condition ID path.",
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Conditionpath",
+          "type": "string"
+        },
+        "evidenceIds": {
+          "description": "Evidence registry IDs for the condition usage.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidenceids",
+          "type": "array"
+        },
+        "expressionSide": {
+          "description": "Expression side on which the atomic fact contributes.",
+          "enum": [
+            "left",
+            "right",
+            "leftDerivation",
+            "rightDerivation"
+          ],
+          "title": "Expressionside",
+          "type": "string"
+        },
+        "operator": {
+          "$ref": "#/$defs/RuleOperator",
+          "description": "Rule comparison operator using this fact."
+        }
+      },
+      "required": [
+        "conditionId",
+        "conditionPath",
+        "operator",
+        "expressionSide",
+        "evidenceIds"
+      ],
+      "title": "FactUsageV2",
+      "type": "object"
+    },
+    "FieldRequirementV2": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "resolutionStatus": {
+                "const": "candidate"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "sourceCandidate": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "resolutionStatus": {
+                "const": "unresolved"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "sourceCandidate": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "dataType": {
+          "$ref": "#/$defs/FactDataType",
+          "description": "Logical value type expected from the field."
+        },
+        "evidenceIds": {
+          "description": "Evidence registry IDs supporting this field requirement.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidenceids",
+          "type": "array"
+        },
+        "fieldId": {
+          "description": "Request-local identifier referenced by filters, aggregation, and time range.",
+          "maxLength": 160,
+          "pattern": "^[a-z][A-Za-z0-9_.-]*$",
+          "title": "Fieldid",
+          "type": "string"
+        },
+        "logicalName": {
+          "description": "Business name or fact/parameter code, not a physical SQL identifier.",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Logicalname",
+          "type": "string"
+        },
+        "required": {
+          "description": "Whether the SQL template must resolve this field.",
+          "title": "Required",
+          "type": "boolean"
+        },
+        "resolutionStatus": {
+          "description": "Whether a source hint exists or remains unresolved.",
+          "enum": [
+            "candidate",
+            "unresolved"
+          ],
+          "title": "Resolutionstatus",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/FieldRole",
+          "description": "Logical role played by this field in a SQL template."
+        },
+        "sourceCandidate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceFieldCandidateV2"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Unapproved physical source hint, or null when unresolved."
+        }
+      },
+      "required": [
+        "fieldId",
+        "role",
+        "logicalName",
+        "dataType",
+        "required",
+        "sourceCandidate",
+        "resolutionStatus",
+        "evidenceIds"
+      ],
+      "title": "FieldRequirementV2",
+      "type": "object"
+    },
+    "FieldRole": {
+      "enum": [
+        "value",
+        "entityKey",
+        "filter",
+        "groupBy",
+        "time"
+      ],
+      "title": "FieldRole",
+      "type": "string"
+    },
+    "FilterCompleteness": {
+      "enum": [
+        "complete",
+        "unresolved"
+      ],
+      "title": "FilterCompleteness",
+      "type": "string"
+    },
+    "FilterRequirementV2": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "value": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "operator": {
+                "enum": [
+                  "is_null",
+                  "is_not_null",
+                  "is_blank",
+                  "is_not_blank"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "evidenceIds": {
+          "description": "Evidence registry IDs supporting this filter.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidenceids",
+          "type": "array"
+        },
+        "fieldId": {
+          "description": "Field requirement to which this predicate applies.",
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Fieldid",
+          "type": "string"
+        },
+        "filterId": {
+          "description": "Stable request-local filter identifier.",
+          "maxLength": 160,
+          "pattern": "^[a-z][A-Za-z0-9_.-]*$",
+          "title": "Filterid",
+          "type": "string"
+        },
+        "operator": {
+          "$ref": "#/$defs/RuleOperator",
+          "description": "Controlled comparison operator."
+        },
+        "required": {
+          "description": "Whether the predicate is mandatory for every lookup.",
+          "title": "Required",
+          "type": "boolean"
+        },
+        "resolutionStatus": {
+          "description": "Whether the predicate has sufficient field/source information.",
+          "enum": [
+            "candidate",
+            "unresolved"
+          ],
+          "title": "Resolutionstatus",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "literal": "#/$defs/LiteralFilterValueV2",
+                  "parameter": "#/$defs/ParameterFilterValueV2"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/ParameterFilterValueV2"
+                },
+                {
+                  "$ref": "#/$defs/LiteralFilterValueV2"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Structured parameter/literal value, or null for unary null operators.",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "filterId",
+        "fieldId",
+        "operator",
+        "value",
+        "required",
+        "resolutionStatus",
+        "evidenceIds"
+      ],
+      "title": "FilterRequirementV2",
+      "type": "object"
+    },
+    "FilterSetV2": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "completeness": {
+                "const": "complete"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "items": {
+                "items": {
+                  "properties": {
+                    "resolutionStatus": {
+                      "const": "candidate"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "completeness": {
+          "$ref": "#/$defs/FilterCompleteness",
+          "description": "Whether the predicates fully express the fact's retrieval criteria."
+        },
+        "evidenceIds": {
+          "description": "Evidence registry IDs supporting filter completeness.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidenceids",
+          "type": "array"
+        },
+        "items": {
+          "description": "Structured predicates required to retrieve the fact.",
+          "items": {
+            "$ref": "#/$defs/FilterRequirementV2"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items",
+        "completeness",
+        "evidenceIds"
+      ],
+      "title": "FilterSetV2",
+      "type": "object"
+    },
+    "FilterValueKind": {
+      "enum": [
+        "parameter",
+        "literal"
+      ],
+      "title": "FilterValueKind",
+      "type": "string"
+    },
+    "LiteralFilterValueV2": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "literal",
+          "description": "Filter value is a declared scalar or scalar list literal.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
+              "type": "array"
+            }
+          ],
+          "description": "Literal comparison value; null is represented with an is-null operator.",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "LiteralFilterValueV2",
+      "type": "object"
+    },
+    "MappingStatus": {
+      "enum": [
+        "mapped",
+        "unresolved"
+      ],
+      "title": "MappingStatus",
+      "type": "string"
+    },
+    "NullPolicy": {
+      "enum": [
+        "fail",
+        "pass",
+        "indeterminate",
+        "error"
+      ],
+      "title": "NullPolicy",
+      "type": "string"
+    },
+    "ParameterFilterValueV2": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "parameter",
+          "description": "Filter value is supplied by a named runtime parameter.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "parameterName": {
+          "description": "Name of a declared fact parameter.",
+          "maxLength": 100,
+          "pattern": "^[a-z][A-Za-z0-9]*$",
+          "title": "Parametername",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "parameterName"
+      ],
+      "title": "ParameterFilterValueV2",
+      "type": "object"
+    },
+    "ParserProvider": {
+      "enum": [
+        "deepseek",
+        "reviewed_import"
+      ],
+      "title": "ParserProvider",
+      "type": "string"
+    },
+    "QueryRequirementsV2": {
+      "additionalProperties": false,
+      "properties": {
+        "aggregation": {
+          "$ref": "#/$defs/AggregationRequirementV2",
+          "description": "Structured aggregation requirement."
+        },
+        "entity": {
+          "$ref": "#/$defs/EntityRequirementV2",
+          "description": "Logical entity and grain contract."
+        },
+        "fields": {
+          "description": "All logical and candidate physical fields needed by the query.",
+          "items": {
+            "$ref": "#/$defs/FieldRequirementV2"
+          },
+          "minItems": 1,
+          "title": "Fields",
+          "type": "array"
+        },
+        "filters": {
+          "$ref": "#/$defs/FilterSetV2",
+          "description": "Structured retrieval predicates."
+        },
+        "result": {
+          "$ref": "#/$defs/FactResultRequirementV2",
+          "description": "Required scalar SQL result contract."
+        },
+        "timeRange": {
+          "$ref": "#/$defs/TimeRangeRequirementV2",
+          "description": "Explicit time-range requirement, including unresolved or not-applicable."
+        }
+      },
+      "required": [
+        "entity",
+        "fields",
+        "filters",
+        "aggregation",
+        "timeRange",
+        "result"
+      ],
+      "title": "QueryRequirementsV2",
+      "type": "object"
+    },
+    "ResolutionStatus": {
+      "description": "How strongly RuleReader can support a query requirement.",
+      "enum": [
+        "declared",
+        "candidate",
+        "unresolved",
+        "notApplicable"
+      ],
+      "title": "ResolutionStatus",
+      "type": "string"
+    },
+    "RuleOperator": {
+      "enum": [
+        "eq",
+        "ne",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "in",
+        "not_in",
+        "is_null",
+        "is_not_null",
+        "is_blank",
+        "is_not_blank",
+        "contains",
+        "not_contains"
+      ],
+      "title": "RuleOperator",
+      "type": "string"
+    },
+    "SourceFieldCandidateV2": {
+      "additionalProperties": false,
+      "properties": {
+        "fieldName": {
+          "description": "Candidate output field name; never an arbitrary SQL expression.",
+          "maxLength": 150,
+          "minLength": 1,
+          "title": "Fieldname",
+          "type": "string"
+        },
+        "relationActive": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Catalog activity hint, or null when the catalog has no state.",
+          "title": "Relationactive"
+        },
+        "relationName": {
+          "description": "Unqualified candidate relation or view name from the RuleReader catalog.",
+          "maxLength": 150,
+          "minLength": 1,
+          "title": "Relationname",
+          "type": "string"
+        },
+        "reviewStatus": {
+          "const": "candidate",
+          "description": "The physical source hint is not approved.",
+          "title": "Reviewstatus",
+          "type": "string"
+        }
+      },
+      "required": [
+        "relationName",
+        "fieldName",
+        "relationActive",
+        "reviewStatus"
+      ],
+      "title": "SourceFieldCandidateV2",
+      "type": "object"
+    },
+    "TimeBoundaryV2": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "parameterName": {
+                "type": "null"
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "parameter"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parameterName": {
+                "type": "string"
+              },
+              "value": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "inclusive": {
+          "description": "Whether the boundary is inclusive.",
+          "title": "Inclusive",
+          "type": "boolean"
+        },
+        "kind": {
+          "$ref": "#/$defs/FilterValueKind",
+          "description": "Boundary source: a runtime parameter or an ISO-8601 literal."
+        },
+        "parameterName": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Declared parameter name when kind=parameter, otherwise null.",
+          "title": "Parametername"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ISO-8601 date/datetime literal when kind=literal, otherwise null.",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "kind",
+        "parameterName",
+        "value",
+        "inclusive"
+      ],
+      "title": "TimeBoundaryV2",
+      "type": "object"
+    },
+    "TimeRangeMode": {
+      "enum": [
+        "none",
+        "asOf",
+        "between",
+        "unresolved"
+      ],
+      "title": "TimeRangeMode",
+      "type": "string"
+    },
+    "TimeRangeRequirementV2": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "none"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "end": {
+                "type": "null"
+              },
+              "resolutionStatus": {
+                "const": "notApplicable"
+              },
+              "start": {
+                "type": "null"
+              },
+              "timeFieldId": {
+                "type": "null"
+              },
+              "timezone": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "unresolved"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "end": {
+                "type": "null"
+              },
+              "resolutionStatus": {
+                "const": "unresolved"
+              },
+              "start": {
+                "type": "null"
+              },
+              "timeFieldId": {
+                "type": "null"
+              },
+              "timezone": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "asOf"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "end": {
+                "type": "object"
+              },
+              "resolutionStatus": {
+                "enum": [
+                  "declared",
+                  "candidate"
+                ]
+              },
+              "start": {
+                "type": "null"
+              },
+              "timeFieldId": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "between"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "end": {
+                "type": "object"
+              },
+              "resolutionStatus": {
+                "enum": [
+                  "declared",
+                  "candidate"
+                ]
+              },
+              "start": {
+                "type": "object"
+              },
+              "timeFieldId": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "end": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimeBoundaryV2"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Upper/as-of boundary, or null."
+        },
+        "evidenceIds": {
+          "description": "Evidence registry IDs supporting time-range semantics.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidenceids",
+          "type": "array"
+        },
+        "mode": {
+          "$ref": "#/$defs/TimeRangeMode",
+          "description": "Declared temporal constraint shape."
+        },
+        "resolutionStatus": {
+          "$ref": "#/$defs/ResolutionStatus",
+          "description": "Whether time semantics are declared, not applicable, or unresolved."
+        },
+        "start": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimeBoundaryV2"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Lower boundary, or null."
+        },
+        "timeFieldId": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Field requirement used for temporal filtering, or null.",
+          "title": "Timefieldid"
+        },
+        "timezone": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Business timezone used to interpret boundaries, or null.",
+          "title": "Timezone"
+        }
+      },
+      "required": [
+        "mode",
+        "timeFieldId",
+        "start",
+        "end",
+        "timezone",
+        "resolutionStatus",
+        "evidenceIds"
+      ],
+      "title": "TimeRangeRequirementV2",
+      "type": "object"
+    },
+    "UncertaintyCategory": {
+      "enum": [
+        "entity",
+        "field",
+        "filter",
+        "aggregation",
+        "timeRange",
+        "source"
+      ],
+      "title": "UncertaintyCategory",
+      "type": "string"
+    },
+    "UncertaintyImpact": {
+      "enum": [
+        "blocking",
+        "warning"
+      ],
+      "title": "UncertaintyImpact",
+      "type": "string"
+    }
+  },
+  "$id": "urn:rulereader:fact-binding-request:2.0.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Strict fact-level input contract for future Agent 2 SQL candidate generation.",
+  "properties": {
+    "contractVersion": {
+      "const": "2.0.0",
+      "description": "Fact handoff contract version.",
+      "title": "Contractversion",
+      "type": "string"
+    },
+    "examples": {
+      "description": "Fact-level values extracted from deterministic rule test cases.",
+      "items": {
+        "$ref": "#/$defs/FactExampleV2"
+      },
+      "title": "Examples",
+      "type": "array"
+    },
+    "fact": {
+      "$ref": "#/$defs/BindableFactV2",
+      "description": "Complete non-derived business fact contract."
+    },
+    "mappingCandidate": {
+      "$ref": "#/$defs/BindingMappingCandidateV2",
+      "description": "Unapproved catalog mapping hint without SQL expressions."
+    },
+    "provenance": {
+      "$ref": "#/$defs/BindingProvenanceV2",
+      "description": "Source, parser, timestamp, and structured evidence registry."
+    },
+    "queryRequirements": {
+      "$ref": "#/$defs/QueryRequirementsV2",
+      "description": "Structured logical requirements for a future SQL template."
+    },
+    "requestId": {
+      "description": "Deterministic ruleVersion#factCode identifier.",
+      "maxLength": 384,
+      "minLength": 3,
+      "title": "Requestid",
+      "type": "string"
+    },
+    "requiresMetadataSnapshot": {
+      "const": true,
+      "description": "Agent 2 must combine this request with a governed metadata snapshot.",
+      "title": "Requiresmetadatasnapshot",
+      "type": "boolean"
+    },
+    "ruleRef": {
+      "$ref": "#/$defs/BindingRuleRefV2",
+      "description": "Immutable source rule reference."
+    },
+    "status": {
+      "const": "candidate",
+      "description": "Request remains unapproved and non-executable.",
+      "title": "Status",
+      "type": "string"
+    },
+    "targetDialect": {
+      "const": "sqlserver",
+      "description": "Only the initial SQL Server handoff dialect is allowed.",
+      "title": "Targetdialect",
+      "type": "string"
+    },
+    "tempTableAllowed": {
+      "const": false,
+      "description": "Session temporary tables are forbidden for this contract.",
+      "title": "Temptableallowed",
+      "type": "boolean"
+    },
+    "uncertainties": {
+      "description": "Explicit unresolved or review-required query semantics.",
+      "items": {
+        "$ref": "#/$defs/BindingUncertaintyV2"
+      },
+      "title": "Uncertainties",
+      "type": "array"
+    },
+    "usages": {
+      "description": "Every rule condition in which the atomic fact participates.",
+      "items": {
+        "$ref": "#/$defs/FactUsageV2"
+      },
+      "minItems": 1,
+      "title": "Usages",
+      "type": "array"
+    }
+  },
+  "required": [
+    "contractVersion",
+    "status",
+    "requestId",
+    "ruleRef",
+    "fact",
+    "queryRequirements",
+    "usages",
+    "mappingCandidate",
+    "examples",
+    "provenance",
+    "uncertainties",
+    "targetDialect",
+    "requiresMetadataSnapshot",
+    "tempTableAllowed"
+  ],
+  "title": "FactBindingRequest 2.0.0",
+  "type": "object"
+}

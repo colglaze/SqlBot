@@ -1,9 +1,11 @@
 # DEV-20260819-01：事实绑定输入与 SQL 候选契约
 
-- 状态：`completed`
+- 状态：`superseded`
 - 创建日期：2026-08-19
 - 实现需求：[REQ-20260819-01](../requirements/REQ-20260819-01-fact-binding-intake.md)
 - 受业务决策约束：[BIZ-20260819-01](../decisions/BIZ-20260819-01-agent2-role-alignment.md)
+- 后续替代：[DEV-20260827-02](DEV-20260827-02-fact-binding-v2-readiness.md)；本设计代码仅作为 V1 legacy
+  路径保留，V2 不得经过该模型、readiness 或生成服务
 
 ## 1. 模块
 

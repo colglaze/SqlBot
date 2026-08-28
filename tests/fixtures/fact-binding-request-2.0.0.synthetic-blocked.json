@@ -1,0 +1,262 @@
+{
+  "contractVersion": "2.0.0",
+  "status": "candidate",
+  "requestId": "SYNTHETIC_REPORT_001@20260827T000000000000Z-aaaaaaaaaaaa#report.total_amount",
+  "ruleRef": {
+    "ruleId": "SYNTHETIC_REPORT_001",
+    "ruleVersion": "SYNTHETIC_REPORT_001@20260827T000000000000Z-aaaaaaaaaaaa",
+    "schemaVersion": "2.0.0",
+    "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "fact": {
+    "factCode": "report.total_amount",
+    "name": "合成报告金额",
+    "factKind": "aggregate",
+    "dataType": "money",
+    "description": "仅用于离线测试的合成金额事实。",
+    "nullable": false,
+    "nullPolicy": "error",
+    "grain": "project_report",
+    "parameters": [
+      {
+        "name": "projectId",
+        "dataType": "integer",
+        "description": "合成项目标识。",
+        "required": true
+      }
+    ],
+    "unit": "CNY",
+    "allowedValues": [],
+    "defaultValue": null,
+    "derivation": null
+  },
+  "queryRequirements": {
+    "entity": {
+      "entityType": "project_report",
+      "grain": "project_report",
+      "keyParameters": [],
+      "resolutionStatus": "declared",
+      "keyResolutionStatus": "unresolved",
+      "evidenceIds": [
+        "fact.declaration"
+      ]
+    },
+    "fields": [
+      {
+        "fieldId": "factValue",
+        "role": "value",
+        "logicalName": "report.total_amount",
+        "dataType": "money",
+        "required": true,
+        "sourceCandidate": null,
+        "resolutionStatus": "unresolved",
+        "evidenceIds": [
+          "fact.declaration"
+        ]
+      },
+      {
+        "fieldId": "parameter.projectId",
+        "role": "filter",
+        "logicalName": "projectId",
+        "dataType": "integer",
+        "required": true,
+        "sourceCandidate": null,
+        "resolutionStatus": "unresolved",
+        "evidenceIds": [
+          "fact.declaration"
+        ]
+      }
+    ],
+    "filters": {
+      "items": [
+        {
+          "filterId": "parameter.projectId",
+          "fieldId": "parameter.projectId",
+          "operator": "eq",
+          "value": {
+            "kind": "parameter",
+            "parameterName": "projectId"
+          },
+          "required": true,
+          "resolutionStatus": "unresolved",
+          "evidenceIds": [
+            "fact.declaration"
+          ]
+        }
+      ],
+      "completeness": "unresolved",
+      "evidenceIds": [
+        "fact.declaration"
+      ]
+    },
+    "aggregation": {
+      "mode": "unresolved",
+      "function": null,
+      "inputFieldIds": [],
+      "groupByFieldIds": [],
+      "distinct": null,
+      "resolutionStatus": "unresolved",
+      "evidenceIds": [
+        "fact.declaration"
+      ]
+    },
+    "timeRange": {
+      "mode": "unresolved",
+      "timeFieldId": null,
+      "start": null,
+      "end": null,
+      "timezone": null,
+      "resolutionStatus": "unresolved",
+      "evidenceIds": [
+        "fact.declaration"
+      ]
+    },
+    "result": {
+      "columnName": "fact_value",
+      "dataType": "money",
+      "cardinality": "scalar",
+      "nullable": false,
+      "nullPolicy": "error",
+      "unit": "CNY"
+    }
+  },
+  "usages": [
+    {
+      "conditionId": "amount-positive",
+      "conditionPath": "root/amount-positive",
+      "operator": "gt",
+      "expressionSide": "left",
+      "evidenceIds": [
+        "condition.amount-positive"
+      ]
+    }
+  ],
+  "mappingCandidate": {
+    "factCode": "report.total_amount",
+    "mappingStatus": "unresolved",
+    "viewName": null,
+    "viewField": null,
+    "viewActive": null,
+    "reviewStatus": "candidate",
+    "note": "合成夹具不声明物理表列候选。"
+  },
+  "examples": [
+    {
+      "testCaseId": "synthetic-pass",
+      "value": 100,
+      "expectedRuleResult": "pass",
+      "evidenceIds": [
+        "test.synthetic-pass"
+      ]
+    }
+  ],
+  "provenance": {
+    "source": {
+      "sourceName": "synthetic-report-rule.md",
+      "relativePath": "fixtures/synthetic-report-rule.md",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "characterCount": 128
+    },
+    "parser": {
+      "parserVersion": "0.9.0-fixture",
+      "promptVersion": "synthetic-fixture-v1",
+      "provider": "reviewed_import",
+      "model": "offline-synthetic-author"
+    },
+    "generatedAt": "2026-08-27T00:00:00Z",
+    "evidence": [
+      {
+        "evidenceId": "fact.declaration",
+        "kind": "factDeclaration",
+        "sourcePath": "/rule/requiredFacts/0"
+      },
+      {
+        "evidenceId": "condition.amount-positive",
+        "kind": "conditionUsage",
+        "sourcePath": "/rule/rootCondition/children/0"
+      },
+      {
+        "evidenceId": "test.synthetic-pass",
+        "kind": "testCase",
+        "sourcePath": "/rule/testCases/0"
+      }
+    ]
+  },
+  "uncertainties": [
+    {
+      "uncertaintyId": "entity.key-parameters",
+      "code": "ENTITY_KEY_UNRESOLVED",
+      "category": "entity",
+      "fieldPath": "/queryRequirements/entity/keyParameters",
+      "impact": "blocking",
+      "reason": "合成规则未声明哪个参数构成实体身份。",
+      "resolutionHint": "由业务复核实体身份语义后再进入元数据解析。",
+      "evidenceIds": [
+        "fact.declaration"
+      ]
+    },
+    {
+      "uncertaintyId": "field.fact-value",
+      "code": "VALUE_FIELD_UNRESOLVED",
+      "category": "field",
+      "fieldPath": "/queryRequirements/fields/0/sourceCandidate",
+      "impact": "blocking",
+      "reason": "合成规则没有已授权的事实值物理字段。",
+      "resolutionHint": "使用受治理元数据快照解析并复核物理字段。",
+      "evidenceIds": [
+        "fact.declaration"
+      ]
+    },
+    {
+      "uncertaintyId": "field.project-id",
+      "code": "FILTER_FIELD_UNRESOLVED",
+      "category": "field",
+      "fieldPath": "/queryRequirements/fields/1/sourceCandidate",
+      "impact": "blocking",
+      "reason": "合成规则没有已授权的筛选物理字段。",
+      "resolutionHint": "使用受治理元数据快照解析并复核筛选字段。",
+      "evidenceIds": [
+        "fact.declaration"
+      ]
+    },
+    {
+      "uncertaintyId": "filter.completeness",
+      "code": "FILTER_SET_INCOMPLETE",
+      "category": "filter",
+      "fieldPath": "/queryRequirements/filters/completeness",
+      "impact": "blocking",
+      "reason": "合成规则没有声明完整的事实检索筛选全集。",
+      "resolutionHint": "由业务复核全部必需筛选。",
+      "evidenceIds": [
+        "fact.declaration"
+      ]
+    },
+    {
+      "uncertaintyId": "aggregation.mode",
+      "code": "AGGREGATION_UNRESOLVED",
+      "category": "aggregation",
+      "fieldPath": "/queryRequirements/aggregation",
+      "impact": "blocking",
+      "reason": "合成规则没有声明聚合口径。",
+      "resolutionHint": "由业务复核聚合模式、函数、输入和粒度。",
+      "evidenceIds": [
+        "fact.declaration"
+      ]
+    },
+    {
+      "uncertaintyId": "time-range.mode",
+      "code": "TIME_RANGE_UNRESOLVED",
+      "category": "timeRange",
+      "fieldPath": "/queryRequirements/timeRange",
+      "impact": "blocking",
+      "reason": "合成规则没有声明时间范围是否适用。",
+      "resolutionHint": "由业务复核不适用或明确时间字段、边界和时区。",
+      "evidenceIds": [
+        "fact.declaration"
+      ]
+    }
+  ],
+  "targetDialect": "sqlserver",
+  "requiresMetadataSnapshot": true,
+  "tempTableAllowed": false
+}

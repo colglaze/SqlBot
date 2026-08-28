@@ -7,6 +7,7 @@ __pycache__/
 # Virtual environments and local configuration
 .venv/
 .env*
+!.env.example
 
 # Test and quality caches
 .pytest_cache/
@@ -22,5 +23,6 @@ dist/
 # IDE and OS files
 .idea/
 .vscode/
+.codex_tmp/
 .DS_Store
 Thumbs.db

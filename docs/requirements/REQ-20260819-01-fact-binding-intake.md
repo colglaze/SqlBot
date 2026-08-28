@@ -1,10 +1,12 @@
 # REQ-20260819-01：Agent 2 事实绑定输入与候选模板契约
 
-- 状态：`completed`
+- 状态：`superseded`
 - 创建日期：2026-08-19
 - 来源：用户确认 RuleReader / SqlBot 双 Agent 统一基线
 - 关联决策：[BIZ-20260819-01](../decisions/BIZ-20260819-01-agent2-role-alignment.md)
 - 技术方案：[DEV-20260819-01](../architecture/DEV-20260819-01-fact-binding-contract.md)
+- 后续替代：[REQ-20260827-02](REQ-20260827-02-rulereader-fact-binding-v2-intake.md)；本需求实现仅作为
+  `FactBindingRequest 1.0.0` legacy 兼容记录
 - 替代需求：[REQ-20260818-01](REQ-20260818-01-release-rule-sql-generator.md) 中“整规则异常集合 SQL”目标
 
 ## 1. 背景

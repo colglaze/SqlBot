@@ -1,0 +1,218 @@
+{
+  "contractVersion": "2.0.0",
+  "status": "candidate",
+  "requestId": "SYNTHETIC_REPORT_001@20260827T000000000000Z-aaaaaaaaaaaa#report.total_amount",
+  "ruleRef": {
+    "ruleId": "SYNTHETIC_REPORT_001",
+    "ruleVersion": "SYNTHETIC_REPORT_001@20260827T000000000000Z-aaaaaaaaaaaa",
+    "schemaVersion": "2.0.0",
+    "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "fact": {
+    "factCode": "report.total_amount",
+    "name": "合成报告金额",
+    "factKind": "aggregate",
+    "dataType": "money",
+    "description": "仅用于离线测试的合成金额事实。",
+    "nullable": false,
+    "nullPolicy": "error",
+    "grain": "project_report",
+    "parameters": [
+      {
+        "name": "projectId",
+        "dataType": "integer",
+        "description": "合成项目标识。",
+        "required": true
+      }
+    ],
+    "unit": "CNY",
+    "allowedValues": [],
+    "defaultValue": null,
+    "derivation": null
+  },
+  "queryRequirements": {
+    "entity": {
+      "entityType": "project_report",
+      "grain": "project_report",
+      "keyParameters": [
+        "projectId"
+      ],
+      "resolutionStatus": "declared",
+      "keyResolutionStatus": "candidate",
+      "evidenceIds": [
+        "fact.declaration"
+      ]
+    },
+    "fields": [
+      {
+        "fieldId": "factValue",
+        "role": "value",
+        "logicalName": "report.total_amount",
+        "dataType": "money",
+        "required": true,
+        "sourceCandidate": {
+          "relationName": "reporting.synthetic_report_amounts",
+          "fieldName": "total_amount",
+          "relationActive": true,
+          "reviewStatus": "candidate"
+        },
+        "resolutionStatus": "candidate",
+        "evidenceIds": [
+          "fact.declaration"
+        ]
+      },
+      {
+        "fieldId": "entity.projectId",
+        "role": "entityKey",
+        "logicalName": "projectId",
+        "dataType": "integer",
+        "required": true,
+        "sourceCandidate": {
+          "relationName": "reporting.synthetic_report_amounts",
+          "fieldName": "project_id",
+          "relationActive": true,
+          "reviewStatus": "candidate"
+        },
+        "resolutionStatus": "candidate",
+        "evidenceIds": [
+          "fact.declaration"
+        ]
+      },
+      {
+        "fieldId": "filter.projectId",
+        "role": "filter",
+        "logicalName": "projectId",
+        "dataType": "integer",
+        "required": true,
+        "sourceCandidate": {
+          "relationName": "reporting.synthetic_report_amounts",
+          "fieldName": "project_id",
+          "relationActive": true,
+          "reviewStatus": "candidate"
+        },
+        "resolutionStatus": "candidate",
+        "evidenceIds": [
+          "fact.declaration"
+        ]
+      }
+    ],
+    "filters": {
+      "items": [
+        {
+          "filterId": "parameter.projectId",
+          "fieldId": "filter.projectId",
+          "operator": "eq",
+          "value": {
+            "kind": "parameter",
+            "parameterName": "projectId"
+          },
+          "required": true,
+          "resolutionStatus": "candidate",
+          "evidenceIds": [
+            "fact.declaration"
+          ]
+        }
+      ],
+      "completeness": "complete",
+      "evidenceIds": [
+        "fact.declaration"
+      ]
+    },
+    "aggregation": {
+      "mode": "precomputed",
+      "function": null,
+      "inputFieldIds": [],
+      "groupByFieldIds": [],
+      "distinct": null,
+      "resolutionStatus": "candidate",
+      "evidenceIds": [
+        "fact.declaration"
+      ]
+    },
+    "timeRange": {
+      "mode": "none",
+      "timeFieldId": null,
+      "start": null,
+      "end": null,
+      "timezone": null,
+      "resolutionStatus": "notApplicable",
+      "evidenceIds": [
+        "fact.declaration"
+      ]
+    },
+    "result": {
+      "columnName": "fact_value",
+      "dataType": "money",
+      "cardinality": "scalar",
+      "nullable": false,
+      "nullPolicy": "error",
+      "unit": "CNY"
+    }
+  },
+  "usages": [
+    {
+      "conditionId": "amount-positive",
+      "conditionPath": "root/amount-positive",
+      "operator": "gt",
+      "expressionSide": "left",
+      "evidenceIds": [
+        "condition.amount-positive"
+      ]
+    }
+  ],
+  "mappingCandidate": {
+    "factCode": "report.total_amount",
+    "mappingStatus": "mapped",
+    "viewName": "reporting.synthetic_report_amounts",
+    "viewField": "total_amount",
+    "viewActive": true,
+    "reviewStatus": "candidate",
+    "note": "合成候选只用于验证证据处置，不授予物理权限。"
+  },
+  "examples": [
+    {
+      "testCaseId": "synthetic-pass",
+      "value": 100,
+      "expectedRuleResult": "pass",
+      "evidenceIds": [
+        "test.synthetic-pass"
+      ]
+    }
+  ],
+  "provenance": {
+    "source": {
+      "sourceName": "synthetic-report-rule.md",
+      "relativePath": "fixtures/synthetic-report-rule.md",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "characterCount": 128
+    },
+    "parser": {
+      "parserVersion": "0.9.0-fixture",
+      "promptVersion": "synthetic-fixture-v1",
+      "provider": "reviewed_import",
+      "model": "offline-synthetic-author"
+    },
+    "generatedAt": "2026-08-27T00:00:00Z",
+    "evidence": [
+      {
+        "evidenceId": "fact.declaration",
+        "kind": "factDeclaration",
+        "sourcePath": "/rule/requiredFacts/0"
+      },
+      {
+        "evidenceId": "condition.amount-positive",
+        "kind": "conditionUsage",
+        "sourcePath": "/rule/rootCondition/children/0"
+      },
+      {
+        "evidenceId": "test.synthetic-pass",
+        "kind": "testCase",
+        "sourcePath": "/rule/testCases/0"
+      }
+    ]
+  },
+  "uncertainties": [],
+  "targetDialect": "sqlserver",
+  "requiresMetadataSnapshot": true,
+  "tempTableAllowed": false
+}

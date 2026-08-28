@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from release_sql_bot.application.bindings import validate_binding_readiness
 from release_sql_bot.domain.fact_bindings import ValidateFactBindingRequest
 from tests.support import valid_binding_payload
@@ -73,3 +76,11 @@ def test_parameter_and_mapping_must_be_covered_by_context() -> None:
         "ENTITY_KEY_RELATION_NOT_ALLOWED",
         "MAPPING_RELATION_NOT_ALLOWED",
     }
+
+
+def test_duplicate_condition_ids_are_rejected_by_the_input_contract() -> None:
+    payload = valid_binding_payload()
+    payload["bindingRequest"]["usages"].append(payload["bindingRequest"]["usages"][0].copy())
+
+    with pytest.raises(ValidationError, match="duplicate conditionId"):
+        ValidateFactBindingRequest.model_validate(payload)

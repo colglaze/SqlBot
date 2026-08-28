@@ -1,0 +1,10 @@
+{
+  "schemaId": "urn:rulereader:fact-binding-request:2.0.0",
+  "contractVersion": "2.0.0",
+  "sourceRepository": "RuleReader",
+  "sourcePath": "contracts/fact-binding-request-2.0.0.schema.json",
+  "sha256": "38fec6b22511984983e7e7fbbdb40afd58aeffd51b2de8ab73fdfb187024026b",
+  "observedAt": "2026-08-27",
+  "consumerFixture": "tests/fixtures/fact-binding-request-2.0.0.synthetic-blocked.json",
+  "fixtureDataClassification": "synthetic-redacted"
+}

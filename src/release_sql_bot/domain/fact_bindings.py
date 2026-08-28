@@ -1,4 +1,8 @@
-"""Fact-level handoff contracts owned by the Agent 2 domain."""
+"""Legacy FactBindingRequest 1.0.0 contracts retained for history only.
+
+Runtime RuleReader handoffs use the independent ``fact_bindings_v2`` consumer.
+V2 payloads must never be converted into these legacy models.
+"""
 
 from __future__ import annotations
 
@@ -104,6 +108,8 @@ class MappingCandidate(ContractModel):
 
 
 class FactBindingRequest(ContractModel):
+    """Legacy V1 handoff model; never use it as a V2 conversion target."""
+
     contract_version: str
     status: str
     rule_ref: RuleRef
@@ -114,6 +120,13 @@ class FactBindingRequest(ContractModel):
     target_dialect: str
     requires_metadata_snapshot: bool
     temp_table_allowed: bool
+
+    @model_validator(mode="after")
+    def reject_duplicate_usage_ids(self) -> FactBindingRequest:
+        condition_ids = [usage.condition_id for usage in self.usages]
+        if len(condition_ids) != len(set(condition_ids)):
+            raise ValueError("usages cannot contain duplicate conditionId values")
+        return self
 
 
 class MetadataSnapshotRef(ContractModel):
@@ -170,6 +183,8 @@ class SqlServerBindingContext(ContractModel):
 
 
 class ValidateFactBindingRequest(ContractModel):
+    """Legacy V1 readiness/generation envelope retained for compatibility."""
+
     binding_request: FactBindingRequest
     context: SqlServerBindingContext
 
