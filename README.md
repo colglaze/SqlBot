@@ -5,7 +5,8 @@ ReleaseSQLBot 是双 Agent 方案中的 Agent 2：消费 RuleReader（Agent 1）
 > 当前版本：`0.3.0`。RuleReader `FactBindingRequest 2.0.0` 接入、不可变交接集合只读 intake、阻断
 > 分析，以及 Phase 2G 项目上下文、受治理元数据快照与物理授权解析和独立 V2 候选生成输入对齐已
 > 完成。既有生成链保留为 legacy V1；V2 使用独立 Prompt、候选契约和完整 Phase 2G 重算。Phase 4
-> V2 SQL AST 静态安全门禁也已完成；通过报告和候选仍固定不可执行，Phase 5 尚未规划实施。
+> V2 SQL AST 静态安全门禁也已完成；本地字段映射和来源资料已整合到固定 commit 的独立私有仓库，
+> 本公开仓库只保留脱敏索引。通过报告和候选仍固定不可执行，Phase 5 尚未规划实施。
 
 ## 当前能做什么
 
@@ -29,6 +30,8 @@ ReleaseSQLBot 是双 Agent 方案中的 Agent 2：消费 RuleReader（Agent 1）
   物理对象、基础列、join、唯一 `fact_value` 来源和 stable condition coverage；
 - 提供纯计算 `passed | blocked` 静态报告；parser 前重算 Phase 2G、候选自哈希和全部引用，快照存在但
   未获 Phase 2G 授权的表列仍阻断；报告与候选始终 `executable=false`；
+- 提供不进入运行时的私有字段映射与来源资料包，逐文件记录 SHA-256、来源时间和证据坐标；原始
+  工作簿与 SQL 只进入私有 Git，本公开仓库不保存内部对象/字段或 SQL，资料固定不授予权限；
 - 定义始终为 `candidate`、`executable=false`、`reviewStatus=pending` 的 SQL 模板契约；
 - 提供与存储无关的规则 canonicalization、SHA-256 内容哈希和结构化版本 diff；
 - 从 MongoDB 按 `rule_id` 读取 `generated_at` 最新的 RuleReader 不可变版本，每次请求重新查询且不缓存旧结果；
@@ -45,8 +48,9 @@ V2 的 `readyForMetadataResolution` 只表示可以开始受治理的元数据�
 也不表示 SQL 已通过受限环境验证、人工审核或可以执行。
 
 Phase 2G 的元数据快照只描述物理事实，只有版本化项目上下文中的精确显式 grant 才授予关系、列、
-实体键和 join 权限。解析 API 完全离线、无持久化且不装配 SQL Server 或模型调用。本地参考工作簿
-未被读取；今后即使由独立任务显式使用也只能形成不可信候选证据，不能成为白名单。
+实体键和 join 权限。解析 API 完全离线、无持久化且不装配 SQL Server 或模型调用。本地参考资料已在
+[REQ-20260828-03](docs/requirements/REQ-20260828-03-local-candidate-evidence-integration.md) 的独立显式
+任务中形成私有受控 bundle；它仍不能成为白名单、快照、grant 或生产事实。
 
 ## 快速开始
 
@@ -167,6 +171,10 @@ uv run pytest
 ## 文档导航
 
 - [文档总索引](docs/README.md)
+- [私有字段映射与来源资料索引](docs/reference/local-candidate-evidence/README.md)
+- [本地资料私有整合需求](docs/requirements/REQ-20260828-03-local-candidate-evidence-integration.md)
+- [本地候选证据与 Git 可见性边界](docs/decisions/BIZ-20260828-03-local-candidate-evidence-boundary.md)
+- [私有本地参考资料包设计](docs/architecture/DEV-20260828-03-local-candidate-evidence-package.md)
 - [当前需求：RuleReader 不可变事实交接只读接入](docs/requirements/REQ-20260828-02-rulereader-handoff-read-intake.md)
 - [不可变事实交接只读边界](docs/decisions/BIZ-20260828-02-rulereader-handoff-read-boundary.md)
 - [不可变事实交接只读接入设计](docs/architecture/DEV-20260828-02-rulereader-handoff-read-intake.md)
@@ -191,7 +199,7 @@ uv run pytest
 - [双 Agent 职责决策](docs/decisions/BIZ-20260819-01-agent2-role-alignment.md)
 - [事实绑定技术方案](docs/architecture/DEV-20260819-01-fact-binding-contract.md)
 - [阶段路线图](docs/ROADMAP.md)
-- [当前进度](docs/progress/PROG-20260828.md)
+- [当前进度](docs/progress/PROG-20260901.md)
 
 旧的“整规则异常集合 SQL”文档作为历史记录保留，不再指导 SQL 生成；其中规则 JSON Schema 1.0
 只被复用于确定性的规则读取校验、canonicalization、哈希和 diff。

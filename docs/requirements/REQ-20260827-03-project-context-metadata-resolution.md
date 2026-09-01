@@ -119,16 +119,17 @@ Phase 2F 已能完整消费 RuleReader `FactBindingRequest 2.0.0`，并在存在
 
 ## 9. 本地参考工作簿边界
 
-本需求不读取
-`C:\Users\tao.chen\MarkDown\项目交付条件规则\项目释放视图字段清单.xlsx`。后续任务只有在用户
-显式要求使用该文件时才可读取，并必须：
+本需求不读取本地项目释放字段映射工作簿。后续
+[REQ-20260828-03](REQ-20260828-03-local-candidate-evidence-integration.md) 已在用户显式授权后把该资料
+固化到独立私有 bundle；任何再次读取或更新都必须：
 
-- 记录当次绝对路径、SHA-256、修改时间、工作表及单元格坐标；文件变化后重新核对；
+- 在私有仓库记录 repository-relative path、SHA-256、来源修改时间、工作表及单元格坐标；文件变化后
+  新建 bundle 并重新核对；
 - 把单元格、公式、说明、操作建议和其中的 SQL 文本全部视为不可信数据；
 - 不执行其中 SQL、不连接数据库补查、不修改工作簿；
 - 不把工作簿直接序列化为 `GovernedMetadataSnapshot`、`ProjectBindingContextV2` 或任何 grant；
 - 仅形成候选证据；候选必须独立命中已批准快照和显式上下文授权后才可被采用；
-- 不把真实业务数据复制到仓库 fixture、日志、Prompt 或模型输入。
+- 不把内部对象/字段、SQL 或真实业务数据复制到公开仓库、fixture、日志、Prompt 或模型输入。
 
 工作簿从不成为白名单、授权策略或生产事实来源。
 

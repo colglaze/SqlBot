@@ -4,25 +4,29 @@
 
 ## 阅读顺序
 
-1. [当前进度](progress/PROG-20260828.md)
-2. [SQL AST 与安全门禁](requirements/REQ-20260827-01-sql-ast-safety-gate.md)
-3. [SQL AST 与安全门禁设计](architecture/DEV-20260827-01-sql-ast-safety-gate.md)
-4. [RuleReader 不可变事实交接只读接入](requirements/REQ-20260828-02-rulereader-handoff-read-intake.md)
-5. [不可变事实交接只读边界](decisions/BIZ-20260828-02-rulereader-handoff-read-boundary.md)
-6. [不可变事实交接只读接入设计](architecture/DEV-20260828-02-rulereader-handoff-read-intake.md)
-7. [V2 SQL 候选生成输入对齐](requirements/REQ-20260828-01-v2-candidate-generation-input.md)
-8. [V2 候选生成权威与不可执行边界](decisions/BIZ-20260828-01-v2-candidate-authority-boundary.md)
-9. [V2 SQL 候选生成输入对齐设计](architecture/DEV-20260828-01-v2-candidate-generation-input.md)
-10. [Phase 2G 项目上下文与受治理元数据授权解析](requirements/REQ-20260827-03-project-context-metadata-resolution.md)
-11. [项目上下文、元数据快照与物理授权边界](decisions/BIZ-20260827-02-project-metadata-authorization-boundary.md)
-12. [Phase 2G 项目上下文与受治理元数据解析设计](architecture/DEV-20260827-03-project-context-metadata-resolution.md)
-13. [RuleReader FactBindingRequest 2.0.0 接入与阻断分析](requirements/REQ-20260827-02-rulereader-fact-binding-v2-intake.md)
-14. [V2 权威与授权边界](decisions/BIZ-20260827-01-fact-binding-v2-authority-boundary.md)
-15. [V2 consumer 与阻断分析设计](architecture/DEV-20260827-02-fact-binding-v2-readiness.md)
-16. [DeepSeek 单事实 SQL 候选生成](requirements/REQ-20260826-04-deepseek-sql-candidate-generation.md)
-17. [DeepSeek 候选生成设计](architecture/DEV-20260826-04-deepseek-sql-candidate-generation.md)
-18. [真实 RuleReader 最新规则版本接入](requirements/REQ-20260826-03-rulereader-latest-rule-integration.md)
-19. [路线图](ROADMAP.md)
+1. [当前进度](progress/PROG-20260901.md)
+2. [私有字段映射与来源资料索引](reference/local-candidate-evidence/README.md)
+3. [本地资料私有整合需求](requirements/REQ-20260828-03-local-candidate-evidence-integration.md)
+4. [本地候选证据与 Git 可见性边界](decisions/BIZ-20260828-03-local-candidate-evidence-boundary.md)
+5. [私有本地参考资料包设计](architecture/DEV-20260828-03-local-candidate-evidence-package.md)
+6. [SQL AST 与安全门禁](requirements/REQ-20260827-01-sql-ast-safety-gate.md)
+7. [SQL AST 与安全门禁设计](architecture/DEV-20260827-01-sql-ast-safety-gate.md)
+8. [RuleReader 不可变事实交接只读接入](requirements/REQ-20260828-02-rulereader-handoff-read-intake.md)
+9. [不可变事实交接只读边界](decisions/BIZ-20260828-02-rulereader-handoff-read-boundary.md)
+10. [不可变事实交接只读接入设计](architecture/DEV-20260828-02-rulereader-handoff-read-intake.md)
+11. [V2 SQL 候选生成输入对齐](requirements/REQ-20260828-01-v2-candidate-generation-input.md)
+12. [V2 候选生成权威与不可执行边界](decisions/BIZ-20260828-01-v2-candidate-authority-boundary.md)
+13. [V2 SQL 候选生成输入对齐设计](architecture/DEV-20260828-01-v2-candidate-generation-input.md)
+14. [Phase 2G 项目上下文与受治理元数据授权解析](requirements/REQ-20260827-03-project-context-metadata-resolution.md)
+15. [项目上下文、元数据快照与物理授权边界](decisions/BIZ-20260827-02-project-metadata-authorization-boundary.md)
+16. [Phase 2G 项目上下文与受治理元数据解析设计](architecture/DEV-20260827-03-project-context-metadata-resolution.md)
+17. [RuleReader FactBindingRequest 2.0.0 接入与阻断分析](requirements/REQ-20260827-02-rulereader-fact-binding-v2-intake.md)
+18. [V2 权威与授权边界](decisions/BIZ-20260827-01-fact-binding-v2-authority-boundary.md)
+19. [V2 consumer 与阻断分析设计](architecture/DEV-20260827-02-fact-binding-v2-readiness.md)
+20. [DeepSeek 单事实 SQL 候选生成](requirements/REQ-20260826-04-deepseek-sql-candidate-generation.md)
+21. [DeepSeek 候选生成设计](architecture/DEV-20260826-04-deepseek-sql-candidate-generation.md)
+22. [真实 RuleReader 最新规则版本接入](requirements/REQ-20260826-03-rulereader-latest-rule-integration.md)
+23. [路线图](ROADMAP.md)
 
 ## 目录职责
 
@@ -35,6 +39,7 @@
 | `specs/` | 契约/Schema | 机器可校验的数据契约 |
 | `workflows/` | 流程说明 | 生成、验证、审核、发布流程 |
 | `operations/` | 运维说明 | 性能、安全、超时和故障处理 |
+| `reference/` | 脱敏来源索引 | 私有非权威资料的固定 commit、摘要与使用边界 |
 | `progress/` | `PROG-*` | 阶段状态、验证证据、阻塞和下一任务 |
 | `templates/` | 文档模板 | 新增 REQ 和 PROG 时复用 |
 
@@ -42,6 +47,8 @@
 
 ### 产品与决策
 
+- [REQ-20260828-03：本地字段映射与来源资料私有整合](requirements/REQ-20260828-03-local-candidate-evidence-integration.md)
+- [BIZ-20260828-03：本地候选证据与 Git 可见性边界](decisions/BIZ-20260828-03-local-candidate-evidence-boundary.md)
 - [REQ-20260828-02：RuleReader 不可变事实交接只读接入](requirements/REQ-20260828-02-rulereader-handoff-read-intake.md)
 - [BIZ-20260828-02：RuleReader 不可变事实交接只读边界](decisions/BIZ-20260828-02-rulereader-handoff-read-boundary.md)
 - [REQ-20260828-01：V2 SQL 候选生成输入对齐](requirements/REQ-20260828-01-v2-candidate-generation-input.md)
@@ -64,6 +71,8 @@
 
 ### 技术与交付
 
+- [DEV-20260828-03：私有本地参考资料包设计](architecture/DEV-20260828-03-local-candidate-evidence-package.md)
+- [私有字段映射与来源资料索引](reference/local-candidate-evidence/README.md)
 - [DEV-20260828-02：RuleReader 不可变事实交接只读接入设计](architecture/DEV-20260828-02-rulereader-handoff-read-intake.md)
 - [DEV-20260828-01：V2 SQL 候选生成输入对齐设计](architecture/DEV-20260828-01-v2-candidate-generation-input.md)
 - [DEV-20260827-03：Phase 2G 项目上下文与受治理元数据解析设计](architecture/DEV-20260827-03-project-context-metadata-resolution.md)
@@ -73,8 +82,9 @@
 - [DEV-20260826-03：真实 RuleReader 最新规则版本接入](architecture/DEV-20260826-03-rulereader-latest-rule-integration.md)
 - [BUG-20260826-01：最新规则查询与真实存储不兼容](bugs/BUG-20260826-01-rule-version-storage-shape.md)
 - [DEV-20260826-02：MongoDB 最新规则读取（已被替代）](architecture/DEV-20260826-02-mongodb-latest-rule-read.md)
-- [PROG-20260827：FactBindingRequest V2 接入与 Phase 2G 授权解析规划](progress/PROG-20260827.md)
+- [PROG-20260901：私有本地参考资料包整合](progress/PROG-20260901.md)
 - [PROG-20260828：Phase 2G 实现与后续安全链路](progress/PROG-20260828.md)
+- [PROG-20260827：FactBindingRequest V2 接入与 Phase 2G 授权解析规划](progress/PROG-20260827.md)
 - [PROG-20260826：真实 RuleReader 接入与 DeepSeek 候选生成](progress/PROG-20260826.md)
 - [DEV-20260826-01：数据库连接配置设计](architecture/DEV-20260826-01-database-connection-config.md)
 - [DEV-20260820-01：规则规范化、哈希与差异领域设计](architecture/DEV-20260820-01-rule-change-analysis.md)
