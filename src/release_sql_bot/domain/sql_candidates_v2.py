@@ -173,7 +173,10 @@ class CandidateProvenanceV2(ReportModel):
     provider: str = Field(min_length=1, max_length=120)
     model: str = Field(min_length=1, max_length=160)
     response_model: str = Field(min_length=1, max_length=160)
-    prompt_version: Literal["sqlserver-fact-candidate-v2"]
+    prompt_version: Literal[
+        "sqlserver-fact-candidate-v2",
+        "sqlserver-fact-candidate-v2.1",
+    ]
     provider_request_id: str = Field(min_length=1, max_length=240)
     system_fingerprint: str | None = Field(default=None, max_length=240)
     attempt_count: int = Field(ge=1, le=6)

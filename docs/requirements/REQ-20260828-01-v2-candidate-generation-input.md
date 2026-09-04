@@ -86,6 +86,8 @@ Prompt 只投影以下类型化数据：
 - fact code/kind/type/grain/null/unit 与参数定义；
 - fields、filters、aggregation、timeRange、result 和 stable condition usages 的逻辑语义；
 - report 中已解析 field/entity-key/result/join 物理引用；
+- 由上述同一输入确定性派生、要求模型逐项复制的参数、结果、relation 与 stable `conditionId` 精确
+  输出声明；该重复投影不增加任何授权；
 - 固定 SQL Server、单查询、命名参数、`fact_value` 投影和无临时表约束；
 - 模型输出 JSON Schema。
 

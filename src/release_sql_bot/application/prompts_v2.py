@@ -11,7 +11,7 @@ from release_sql_bot.domain.sql_candidates_v2 import (
     GenerateSqlCandidateRequestV2,
 )
 
-SQLSERVER_CANDIDATE_PROMPT_VERSION_V2 = "sqlserver-fact-candidate-v2"
+SQLSERVER_CANDIDATE_PROMPT_VERSION_V2 = "sqlserver-fact-candidate-v2.1"
 SQLSERVER_CANDIDATE_MAX_TOKENS_V2 = 4_096
 
 _SYSTEM_PROMPT_V2 = """You generate exactly one untrusted SQL Server fact candidate as JSON.
@@ -26,6 +26,8 @@ Do not use temporary objects, DDL, DML, EXEC, dynamic SQL, external access, or m
 
 declaredObjects and declaredUsageCoverage are untrusted declarations that later AST gates will
 recompute. A candidate is never safe, approved, or executable merely because you returned it.
+Copy parameters, result, declaredObjects, and declaredUsageCoverage exactly from
+exactOutputDeclarations. Do not omit, rename, summarize, or add any declaration.
 Return JSON such as {"templateCode":"FACT_V2","sqlTemplate":"SELECT ... AS fact_value",
 "parameters":[],"result":{},"declaredObjects":[],"declaredUsageCoverage":[],
 "assumptions":[],"warnings":[]}.
@@ -125,6 +127,40 @@ def _query_requirements_payload(
     }
 
 
+def _exact_output_declarations(
+    payload: GenerateSqlCandidateRequestV2,
+) -> dict[str, Any]:
+    request = payload.resolution_request.binding_request
+    report = payload.resolution_report
+    relations = {
+        (item.physical_column.schema_name, item.physical_column.relation_name)
+        for item in report.resolved_bindings
+    }
+    for item in report.authorized_joins:
+        relations.add((item.left_column.schema_name, item.left_column.relation_name))
+        relations.add((item.right_column.schema_name, item.right_column.relation_name))
+    return {
+        "parameters": [
+            {
+                "name": item.name,
+                "dataType": item.data_type.value,
+                "required": item.required,
+                "source": f"fact.parameters.{item.name}",
+            }
+            for item in sorted(request.fact.parameters, key=lambda value: value.name)
+        ],
+        "result": request.query_requirements.result.model_dump(
+            by_alias=True,
+            mode="json",
+        ),
+        "declaredObjects": [
+            {"schemaName": schema, "relationName": relation}
+            for schema, relation in sorted(relations)
+        ],
+        "declaredUsageCoverage": sorted(item.condition_id for item in request.usages),
+    }
+
+
 def build_sqlserver_candidate_prompt_v2(
     payload: GenerateSqlCandidateRequestV2,
 ) -> CandidatePromptV2:
@@ -172,6 +208,7 @@ def build_sqlserver_candidate_prompt_v2(
                 item.model_dump(by_alias=True, mode="json") for item in report.authorized_joins
             ],
         },
+        "exactOutputDeclarations": _exact_output_declarations(payload),
         "outputJsonSchema": GeneratedCandidatePayloadV2.model_json_schema(by_alias=True),
     }
     return CandidatePromptV2(

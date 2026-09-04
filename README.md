@@ -26,6 +26,8 @@ ReleaseSQLBot 是双 Agent 方案中的 Agent 2：消费 RuleReader（Agent 1）
   固定 `executable=false` 的 `metadataResolved` 报告；
 - 在固定 provider 前重算完整 Phase 2G 闭包，以最小化 V2 Prompt 生成带内容哈希、固定
   `candidate / executable=false / pending` 的 V2 候选；
+- 当前 `sqlserver-fact-candidate-v2.1` 还会给模型提供由同一权威输入确定性派生的精确输出声明，
+  但应用仍会独立交叉校验，模型不能借此取得授权或安全结论；
 - 使用锁定的 SQLGlot `30.17.0` / `tsql` adapter 完整解析候选，从 AST 重算语句、只读结构、参数、
   物理对象、基础列、join、唯一 `fact_value` 来源和 stable condition coverage；
 - 提供纯计算 `passed | blocked` 静态报告；parser 前重算 Phase 2G、候选自哈希和全部引用，快照存在但
@@ -36,7 +38,8 @@ ReleaseSQLBot 是双 Agent 方案中的 Agent 2：消费 RuleReader（Agent 1）
 - 提供与存储无关的规则 canonicalization、SHA-256 内容哈希和结构化版本 diff；
 - 从 MongoDB 按 `rule_id` 读取 `generated_at` 最新的 RuleReader 不可变版本，每次请求重新查询且不缓存旧结果；
 - 兼容真实存量 Schema `1.0.0` 和 `2.0.0`，并校验外层审计元数据与内层文档引用一致；
-- 保留 provider 端口和 DeepSeek JSON Output 适配器作为 V1 legacy 历史实现；当前 V2 路径不会调用它；
+- provider 传输端口和 DeepSeek JSON Output 适配器由 V1 legacy 与 V2 共用；V2 仍使用独立 Prompt、
+  请求/候选契约和完整 Phase 2G 重算，配置完整时 `/api/v1/sql-candidates/v2/generate` 会调用该适配器；
 - 追踪 `FactBindingRequest` 哈希、Prompt、请求/响应模型、provider 请求 ID、输出配置和尝试次数；
 - 对超时、限流、5xx、空响应和非法候选执行总次数有上限的重试；
 - 缺少异常集合语义或真实 Schema 时显式阻塞整规则 SQL 规划，不提供生产默认值；
@@ -78,6 +81,26 @@ uv run release-sql-bot serve
 
 数据库状态默认为 `disabled`。配置完整后将 `RSB_DATABASE_ENABLED=true` 才会在启动时连接并
 探测 MongoDB；连接失败时 `/ready` 返回非就绪，最新规则和交接只读接口返回 503。
+
+### 查看 SQL 雏形的安全口径
+
+当前可以查看 V2 生成结果。为避免本地 `.env` 中已有数据库配置导致服务探测 MongoDB，预览会话应
+显式关闭数据库能力。最简单的方式是运行仓库自带的合成预览脚本；它不启动服务，只调用已配置的
+provider 一次，然后在本地运行 Phase 4 AST 门禁：
+
+```powershell
+$env:RSB_DATABASE_ENABLED="false"
+uv run release-sql-bot check-config
+uv run python -m scripts.preview_synthetic_v2
+```
+
+候选与静态报告分别写入被 Git 忽略的 `.codex_tmp/v2-candidate-preview.json` 和
+`.codex_tmp/v2-static-report.json`。也可启动服务后在 `/docs` 以完整、合成脱敏且已确定性解析为
+`metadataResolved` 的
+`GenerateSqlCandidateRequestV2` 调用 `/api/v1/sql-candidates/v2/generate`，并把生成请求与候选一起提交
+给 `/api/v1/sql-candidates/v2/validate-static`。生成结果只能作为 SQL 雏形查看：即使静态报告为
+`passed`，候选和报告仍固定 `executable=false`，不得复制到数据库客户端执行。不得把私有参考工作簿
+或其候选字段直接作为请求输入；在线模型调用还必须得到用户针对当次任务的明确授权。
 
 ## 服务边界
 
@@ -146,7 +169,10 @@ MongoDB URI、数据库和集合配置完整时允许设置 `RSB_DATABASE_ENABLE
 MongoDB 最新规则与事实交接只读适配器，不会启用 SQL Server。任一只读开关设为 `false` 或将
 `RSB_TEMP_TABLE_ALLOWED=true` 都会在配置阶段明确失败。配置完整不表示网络可达或账号确实只读；
 数据库侧仍需授予最小只读角色。`check-config` 不输出 URI、主机、数据库名、用户名、密码或 API Key。
-DeepSeek 只有在 API Key、base URL 和模型全部配置时才会启用；未配置的生成入口返回 503。
+DeepSeek 只有在 API Key、base URL 和模型全部配置时才会启用；未配置的 V1/V2 生成入口返回 503。
+基线交付只用固定离线 provider 回归；真实在线调用必须由用户针对当次任务明确授权，并继续只产出
+`candidate / executable=false / reviewStatus=pending` 的不可信候选。2026-09-01 的首次显式合成预览
+记录见 [BUG-20260901-01](docs/bugs/BUG-20260901-01-v2-live-provider-coverage-declaration.md)。
 
 ## 开发检查
 

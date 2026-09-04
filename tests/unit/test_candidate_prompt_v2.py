@@ -26,6 +26,31 @@ def test_v2_prompt_is_stable_authority_minimized_and_independent() -> None:
         "kind": "parameter",
         "parameterName": "projectId",
     }
+    assert user["exactOutputDeclarations"] == {
+        "parameters": [
+            {
+                "name": "projectId",
+                "dataType": "integer",
+                "required": True,
+                "source": "fact.parameters.projectId",
+            }
+        ],
+        "result": {
+            "columnName": "fact_value",
+            "dataType": "money",
+            "cardinality": "scalar",
+            "nullable": False,
+            "nullPolicy": "error",
+            "unit": "CNY",
+        },
+        "declaredObjects": [
+            {
+                "schemaName": "reporting",
+                "relationName": "synthetic_report_amounts",
+            }
+        ],
+        "declaredUsageCoverage": ["amount-positive"],
+    }
     forbidden = {
         "mappingCandidate",
         "sourceCandidate",

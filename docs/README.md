@@ -80,6 +80,7 @@
 - [DEV-20260827-01：SQL AST 与安全门禁设计](architecture/DEV-20260827-01-sql-ast-safety-gate.md)
 - [DEV-20260826-04：DeepSeek 单事实 SQL 候选生成设计（含 DataEase SQLBot 借鉴边界）](architecture/DEV-20260826-04-deepseek-sql-candidate-generation.md)
 - [DEV-20260826-03：真实 RuleReader 最新规则版本接入](architecture/DEV-20260826-03-rulereader-latest-rule-integration.md)
+- [BUG-20260901-01：V2 在线候选 coverage 声明不稳定](bugs/BUG-20260901-01-v2-live-provider-coverage-declaration.md)
 - [BUG-20260826-01：最新规则查询与真实存储不兼容](bugs/BUG-20260826-01-rule-version-storage-shape.md)
 - [DEV-20260826-02：MongoDB 最新规则读取（已被替代）](architecture/DEV-20260826-02-mongodb-latest-rule-read.md)
 - [PROG-20260901：私有本地参考资料包整合](progress/PROG-20260901.md)

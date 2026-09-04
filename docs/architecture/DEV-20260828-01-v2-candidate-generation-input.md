@@ -38,7 +38,8 @@ V2 领域/应用模块不导入 `domain.fact_bindings`、`application.bindings`�
 
 ## 3. Prompt 投影
 
-Prompt 版本固定为 `sqlserver-fact-candidate-v2`。system 消息要求 JSON-only、单条 SQL Server 只读
+当前 Prompt 版本为 `sqlserver-fact-candidate-v2.1`；历史 `sqlserver-fact-candidate-v2` 仍可作为既有
+候选的审计引用。system 消息要求 JSON-only、单条 SQL Server 只读
 查询候选、`:name` 参数、单列 `fact_value`、无临时表/DDL/DML/EXEC/动态 SQL，并明确输出仍不可信。
 
 user payload 使用 camelCase、排序稳定 JSON，结构为：
@@ -52,12 +53,19 @@ queryRequirements
 conditionUsages
 authorizedPhysicalPlan
   resolvedBindings / resolvedEntityKeys / resultSource / authorizedJoins
-outputContract
+exactOutputDeclarations
+  parameters / result / declaredObjects / declaredUsageCoverage
+outputJsonSchema
 ```
 
 fields 投影删除 `sourceCandidate` 和 resolution candidate 状态，只保留逻辑 ID/role/name/type/required。
 请求不携带 examples、mappingCandidate、provenance、evidence、uncertainty reason、approvalRef、未授权快照
 对象或实际参数值。完整原始载荷只进入输入哈希和审计引用，不进入 Prompt。
+
+`v2.1` 将参数、结果、解析 relation 集合和 stable `conditionId` 集合从上述同一输入确定性投影到
+`exactOutputDeclarations`，要求模型逐项复制。这只消除重复声明时的格式歧义，不替代应用交叉校验，
+不授予 relation/column 权限，也不构成 AST coverage 证据。变更与合成在线兼容性证据见
+[BUG-20260901-01](../bugs/BUG-20260901-01-v2-live-provider-coverage-declaration.md)。
 
 ## 4. 模型载荷与候选组装
 
