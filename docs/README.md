@@ -4,7 +4,7 @@
 
 ## 阅读顺序
 
-1. [当前进度](progress/PROG-20260901.md)
+1. [当前进度](progress/PROG-20260905.md)
 2. [私有字段映射与来源资料索引](reference/local-candidate-evidence/README.md)
 3. [本地资料私有整合需求](requirements/REQ-20260828-03-local-candidate-evidence-integration.md)
 4. [本地候选证据与 Git 可见性边界](decisions/BIZ-20260828-03-local-candidate-evidence-boundary.md)
@@ -71,6 +71,7 @@
 
 ### 技术与交付
 
+- [PROG-20260905：同步远程代码与本地验证](progress/PROG-20260905.md)
 - [DEV-20260828-03：私有本地参考资料包设计](architecture/DEV-20260828-03-local-candidate-evidence-package.md)
 - [私有字段映射与来源资料索引](reference/local-candidate-evidence/README.md)
 - [DEV-20260828-02：RuleReader 不可变事实交接只读接入设计](architecture/DEV-20260828-02-rulereader-handoff-read-intake.md)
