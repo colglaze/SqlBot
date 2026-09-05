@@ -3,12 +3,15 @@ from __future__ import annotations
 import asyncio
 import json
 
+from release_sql_bot.application.candidates_v2 import CandidateGenerationOutputInvalidV2Error
+from scripts import preview_synthetic_v2
 from scripts.preview_synthetic_v2 import (
     build_preview_generation_request,
     main,
     offline_provider,
     run_preview,
 )
+from tests.fakes import FixedCandidateModelProvider
 
 
 def test_preview_request_matches_offline_regression_fixture() -> None:
@@ -47,3 +50,19 @@ def test_main_default_mode_is_offline_and_writes_both_outputs(tmp_path) -> None:
     assert candidate_payload["provenance"]["provider"] == "fixed-offline"
     assert report_payload["status"] == "passed"
     assert report_payload["executable"] is False
+
+
+def test_main_reports_clean_error_when_model_output_is_invalid(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    monkeypatch.setattr(
+        preview_synthetic_v2,
+        "offline_provider",
+        lambda: FixedCandidateModelProvider([CandidateGenerationOutputInvalidV2Error()]),
+    )
+
+    exit_code = main(["--output-dir", str(tmp_path)])
+
+    assert exit_code == 4
+    assert "未通过严格输出门禁" in capsys.readouterr().err
+    assert not (tmp_path / "v2-candidate-preview.json").exists()

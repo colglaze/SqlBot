@@ -26,7 +26,13 @@ import json
 import sys
 from pathlib import Path
 
-from release_sql_bot.application.candidates_v2 import generate_sql_candidate_v2
+from release_sql_bot.application.candidates_v2 import (
+    CandidateGenerationOutputInvalidV2Error,
+    CandidateGenerationProviderRejectedV2Error,
+    CandidateGenerationProviderUnavailableV2Error,
+    CandidateInputNotReadyV2Error,
+    generate_sql_candidate_v2,
+)
 from release_sql_bot.application.ports.candidates import (
     CandidateModelProvider,
     CandidateModelResponse,
@@ -175,7 +181,26 @@ def main(argv: list[str] | None = None) -> int:
         model = OFFLINE_MODEL_NAME
         max_retries = 0
 
-    candidate, report = asyncio.run(run_preview(provider, model=model, max_retries=max_retries))
+    try:
+        candidate, report = asyncio.run(run_preview(provider, model=model, max_retries=max_retries))
+    except CandidateInputNotReadyV2Error:
+        print("合成输入未形成精确 metadataResolved 闭包，预览中止。", file=sys.stderr)
+        return 3
+    except CandidateGenerationOutputInvalidV2Error:
+        print(
+            "在线模型响应未通过严格输出门禁，未形成有效候选；可直接重跑一次。",
+            file=sys.stderr,
+        )
+        return 4
+    except CandidateGenerationProviderRejectedV2Error:
+        print(
+            "provider 拒绝了请求（鉴权、余额或参数问题）；请检查 DeepSeek 配置。",
+            file=sys.stderr,
+        )
+        return 5
+    except CandidateGenerationProviderUnavailableV2Error:
+        print("provider 暂不可用（超时、限流或网络问题，且有界重试已耗尽）。", file=sys.stderr)
+        return 6
     candidate_path, report_path = write_outputs(candidate, report, args.output_dir)
     _print_summary(candidate, report, candidate_path, report_path)
     return 0
