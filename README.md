@@ -85,17 +85,21 @@ uv run release-sql-bot serve
 ### 查看 SQL 雏形的安全口径
 
 当前可以查看 V2 生成结果。为避免本地 `.env` 中已有数据库配置导致服务探测 MongoDB，预览会话应
-显式关闭数据库能力：
+显式关闭数据库能力。最简单的方式是运行仓库自带的合成预览脚本；它不启动服务，默认使用离线固定
+provider 自测完整链路，`--live` 才按配置调用在线 provider（需要用户针对当次任务的明确授权），
+然后在本地运行 Phase 4 AST 门禁：
 
 ```powershell
 $env:RSB_DATABASE_ENABLED="false"
 uv run release-sql-bot check-config
-uv run release-sql-bot serve
+uv run python -m scripts.preview_synthetic_v2
 ```
 
-2026-09-01 曾使用的合成预览脚本 `scripts/preview_synthetic_v2.py` 未随脱敏历史保留，当前不可用；
-背景与后续处理见 [BUG-20260901-01](docs/bugs/BUG-20260901-01-v2-live-provider-coverage-declaration.md)。
-可启动服务后在 `/docs` 以完整、合成脱敏且已确定性解析为
+候选与静态报告分别写入被 Git 忽略的 `.codex_tmp/v2-candidate-preview.json` 和
+`.codex_tmp/v2-static-report.json`。该脚本为 2026-09-05 依据当前 0.3.0 契约的重新实现，替代在
+历史脱敏改写中丢失的原件（见
+[BUG-20260901-01](docs/bugs/BUG-20260901-01-v2-live-provider-coverage-declaration.md)）。
+也可启动服务后在 `/docs` 以完整、合成脱敏且已确定性解析为
 `metadataResolved` 的
 `GenerateSqlCandidateRequestV2` 调用 `/api/v1/sql-candidates/v2/generate`，并把生成请求与候选一起提交
 给 `/api/v1/sql-candidates/v2/validate-static`。生成结果只能作为 SQL 雏形查看：即使静态报告为
