@@ -13,6 +13,7 @@ from release_sql_bot.application.canonical import (
     canonical_sha256,
 )
 from release_sql_bot.application.metadata_resolution_v2 import resolve_metadata_v2
+from release_sql_bot.application.ports.candidate_store import CandidateTemplateStore
 from release_sql_bot.application.ports.candidates import (
     CandidateModelProvider,
     CandidateModelRequest,
@@ -346,3 +347,31 @@ async def generate_sql_candidate_v2(
             )
 
     raise AssertionError("bounded V2 candidate generation loop exited unexpectedly")
+
+
+async def generate_and_store_sql_candidate_v2(
+    provider: CandidateModelProvider,
+    payload: GenerateSqlCandidateRequestV2,
+    store: CandidateTemplateStore,
+    *,
+    model: str,
+    max_retries: int,
+    retry_base_delay_seconds: float = 0.25,
+    sleeper: RetrySleeper = asyncio.sleep,
+) -> SqlTemplateCandidateV2:
+    """Generate one V2 candidate and persist it through the insert-only store.
+
+    Storage problems never change the generation result: the candidate is
+    returned regardless, and the store folds its own failures into outcomes.
+    """
+
+    candidate = await generate_sql_candidate_v2(
+        provider,
+        payload,
+        model=model,
+        max_retries=max_retries,
+        retry_base_delay_seconds=retry_base_delay_seconds,
+        sleeper=sleeper,
+    )
+    await store.save(candidate)
+    return candidate

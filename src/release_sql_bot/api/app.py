@@ -23,6 +23,7 @@ from release_sql_bot.application.candidates_v2 import (
     CandidateGenerationProviderRejectedV2Error,
     CandidateGenerationProviderUnavailableV2Error,
     CandidateInputNotReadyV2Error,
+    generate_and_store_sql_candidate_v2,
     generate_sql_candidate_v2,
 )
 from release_sql_bot.application.handoff_intake_v2 import (
@@ -106,6 +107,9 @@ def create_app(
         resources = database_resources or build_database_resources(resolved_settings)
         database = resources.initializer
         await database.initialize()
+        candidate_store = resources.candidate_store
+        if candidate_store is not None:
+            await candidate_store.initialize()
         app.state.runtime = RuntimeContainer(
             settings=resolved_settings,
             database=database,
@@ -116,11 +120,14 @@ def create_app(
                 if candidate_provider is not None
                 else build_candidate_provider(resolved_settings)
             ),
+            candidate_store=candidate_store,
             readiness_graph=build_readiness_graph(database),
         )
         try:
             yield
         finally:
+            if candidate_store is not None:
+                await candidate_store.close()
             await database.close()
 
     app = FastAPI(
@@ -313,11 +320,20 @@ def create_app(
                 },
             )
         try:
-            return await generate_sql_candidate_v2(
+            generate = (
+                generate_and_store_sql_candidate_v2
+                if runtime.candidate_store is not None
+                else generate_sql_candidate_v2
+            )
+            kwargs = (
+                {"store": runtime.candidate_store} if runtime.candidate_store is not None else {}
+            )
+            return await generate(
                 runtime.candidate_provider,
                 payload,
                 model=runtime.settings.deepseek_model,
                 max_retries=runtime.settings.deepseek_max_retries,
+                **kwargs,
             )
         except CandidateInputNotReadyV2Error as exc:
             raise HTTPException(

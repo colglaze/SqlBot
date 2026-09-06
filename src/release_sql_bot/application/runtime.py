@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from release_sql_bot.application.ports.candidate_store import CandidateTemplateStore
 from release_sql_bot.application.ports.candidates import CandidateModelProvider
 from release_sql_bot.application.ports.database import DatabaseInitializer
 from release_sql_bot.application.ports.handoffs import FactBindingHandoffRepository
@@ -17,6 +18,7 @@ class DatabaseResources:
     initializer: DatabaseInitializer
     rule_repository: RuleRepository | None
     fact_binding_repository: FactBindingHandoffRepository | None = None
+    candidate_store: CandidateTemplateStore | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,4 +28,5 @@ class RuntimeContainer:
     rule_repository: RuleRepository | None
     fact_binding_repository: FactBindingHandoffRepository | None
     candidate_provider: CandidateModelProvider | None
+    candidate_store: CandidateTemplateStore | None
     readiness_graph: ReadinessGraph

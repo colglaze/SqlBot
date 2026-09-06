@@ -7,15 +7,25 @@ from release_sql_bot.application.runtime import DatabaseResources
 from release_sql_bot.config.settings import Settings
 from release_sql_bot.infrastructure.database.disabled import DisabledDatabaseInitializer
 from release_sql_bot.infrastructure.database.mongodb import MongoRuleStore
+from release_sql_bot.infrastructure.database.mongodb_candidates import MongoCandidateStore
 
 
 def build_database_resources(settings: Settings) -> DatabaseResources:
+    candidate_store = MongoCandidateStore(settings) if settings.candidate_store_enabled else None
     if settings.database_enabled:
         store = MongoRuleStore(settings)
         return DatabaseResources(
             initializer=store,
             rule_repository=store,
             fact_binding_repository=store,
+            candidate_store=candidate_store,
+        )
+    if candidate_store is not None:
+        return DatabaseResources(
+            initializer=DisabledDatabaseInitializer(),
+            rule_repository=None,
+            fact_binding_repository=None,
+            candidate_store=candidate_store,
         )
     return DatabaseResources(
         initializer=DisabledDatabaseInitializer(),
