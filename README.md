@@ -6,7 +6,10 @@ ReleaseSQLBot 是双 Agent 方案中的 Agent 2：消费 RuleReader（Agent 1）
 > 分析，以及 Phase 2G 项目上下文、受治理元数据快照与物理授权解析和独立 V2 候选生成输入对齐已
 > 完成。既有生成链保留为 legacy V1；V2 使用独立 Prompt、候选契约和完整 Phase 2G 重算。Phase 4
 > V2 SQL AST 静态安全门禁也已完成；本地字段映射和来源资料已整合到固定 commit 的独立私有仓库，
-> 本公开仓库只保留脱敏索引。通过报告和候选仍固定不可执行，Phase 5 尚未规划实施。
+> 本公开仓库只保留脱敏索引。Phase 5A 受限 SQL Server 描述验证（describe-only）已实现：本地
+> CLI 入口、数据库前完整重算门禁、token 级参数 binder、最小权限/快照漂移/首结果集描述探测，
+> 全部离线测试通过，但真实数据库验证仍需按 REQ 确认非生产目标与最小权限账号。Phase 5B/5C、
+> 人工审核和发布仍未实施。
 
 ## 当前能做什么
 
@@ -32,6 +35,11 @@ ReleaseSQLBot 是双 Agent 方案中的 Agent 2：消费 RuleReader（Agent 1）
   物理对象、基础列、join、唯一 `fact_value` 来源和 stable condition coverage；
 - 提供纯计算 `passed | blocked` 静态报告；parser 前重算 Phase 2G、候选自哈希和全部引用，快照存在但
   未获 Phase 2G 授权的表列仍阻断；报告与候选始终 `executable=false`；
+- 提供 Phase 5A 受限 SQL Server 描述验证（默认关闭、仅本地 CLI）：数据库访问前重算完整 Phase 2G/4
+  闭包并比对携带报告，任一篡改保持 adapter 调用次数为零；token 级 binder 把 `:name` 确定性派生为
+  `@pN`/qmark 形式且不改原候选字节；ODBC adapter 加密连接、固定 session policy、目标身份/最小权限/
+  批准快照漂移/首结果集描述（`sp_describe_first_result_set` 全参数绑定）逐级探测；报告只含哈希与
+  中性证据，始终 `executable=false`；候选仍不取数，Phase 5B/5C 未实施；
 - 提供不进入运行时的私有字段映射与来源资料包，逐文件记录 SHA-256、来源时间和证据坐标；原始
   工作簿与 SQL 只进入私有 Git，本公开仓库不保存内部对象/字段或 SQL，资料固定不授予权限；
 - 定义始终为 `candidate`、`executable=false`、`reviewStatus=pending` 的 SQL 模板契约；
@@ -161,22 +169,62 @@ flowchart LR
 | `RSB_SQLSERVER_TRUST_SERVER_CERTIFICATE` | `false` |
 | `RSB_SQLSERVER_SCHEMA_ALLOWLIST` | `[]` |
 | `RSB_SQLSERVER_METADATA_WORKBOOK_PATH` | 未配置 |
+| `RSB_SQLSERVER_VALIDATION_ENABLED` | `false` |
+| `RSB_SQLSERVER_VALIDATION_PROFILE_ID` | 未配置 |
+| `RSB_SQLSERVER_VALIDATION_ENVIRONMENT_CLASS` | `development` |
+| `RSB_SQLSERVER_VALIDATION_ALLOWED_MODES` | `["describeOnly"]` |
+| `RSB_SQLSERVER_VALIDATION_MAX_CONCURRENT_RUNS` | `1` |
+| `RSB_SQLSERVER_LOCK_TIMEOUT_MILLISECONDS` | `2000` |
+| `RSB_SQLSERVER_VALIDATION_MAX_DESCRIBE_ROWS` | `1000` |
+| `RSB_SQLSERVER_VALIDATION_MAX_DESCRIBE_BYTES` | `1000000` |
+| `RSB_SQLSERVER_VALIDATION_PARAMETER_HMAC_KEY` | 未配置 |
+| `RSB_SQLSERVER_SUPPORTED_MAJOR_VERSIONS` | `[13,14,15,16,17]` |
 | `RSB_DEEPSEEK_API_KEY` | 未配置 |
 | `RSB_DEEPSEEK_BASE_URL` | 未配置 |
 | `RSB_DEEPSEEK_MODEL` | `deepseek-v4-flash` |
 | `RSB_DEEPSEEK_TIMEOUT_SECONDS` | `90` |
 | `RSB_DEEPSEEK_MAX_RETRIES` | `2` |
+| `RSB_CANDIDATE_STORE_ENABLED` | `false` |
+| `RSB_CANDIDATE_STORE_DATABASE` | `release_sql_bot` |
+| `RSB_CANDIDATE_STORE_COLLECTION` | `sql_template_candidates` |
 | `RSB_SQL_DIALECT` | `sqlserver` |
 | `RSB_TEMP_TABLE_ALLOWED` | `false` |
 
 MongoDB URI、数据库和集合配置完整时允许设置 `RSB_DATABASE_ENABLED=true`，当前只会启用
-MongoDB 最新规则与事实交接只读适配器，不会启用 SQL Server。任一只读开关设为 `false` 或将
-`RSB_TEMP_TABLE_ALLOWED=true` 都会在配置阶段明确失败。配置完整不表示网络可达或账号确实只读；
-数据库侧仍需授予最小只读角色。`check-config` 不输出 URI、主机、数据库名、用户名、密码或 API Key。
+MongoDB 最新规则与事实交接只读适配器。MongoDB/SQL Server 只读开关设为 `false`、
+`RSB_TEMP_TABLE_ALLOWED=true`、或 SQL Server 验证配置违反固定安全规则时，都会在配置阶段明确
+失败。SQL Server 受限验证使用完全独立的
+`RSB_SQLSERVER_VALIDATION_ENABLED` 开关（默认关闭，不复用 MongoDB 开关）：启用时在配置阶段
+硬性拒绝 production 环境/目标、未加密连接、信任服务器证书和缺失 HMAC key，并要求目标与凭据、
+profile ID 完整。`check-config` 不输出 URI、主机、数据库名、用户名、密码或 API Key。
 DeepSeek 只有在 API Key、base URL 和模型全部配置时才会启用；未配置的 V1/V2 生成入口返回 503。
 基线交付只用固定离线 provider 回归；真实在线调用必须由用户针对当次任务明确授权，并继续只产出
 `candidate / executable=false / reviewStatus=pending` 的不可信候选。2026-09-01 的首次显式合成预览
 记录见 [BUG-20260901-01](docs/bugs/BUG-20260901-01-v2-live-provider-coverage-declaration.md)。
+
+### 受限 SQL Server 描述验证（Phase 5A）
+
+Phase 5A 只提供本地 CLI，不提供 HTTP 入口；输入必须是包含完整 V2 生成请求、候选、静态报告、
+验证 case 和参数绑定的严格 JSON 文件：
+
+```powershell
+$env:RSB_SQLSERVER_VALIDATION_ENABLED="true"
+uv run release-sql-bot validate-sqlserver `
+  --input .codex_tmp/validation-request.json `
+  --output .codex_tmp/validation-report.json
+```
+
+- 首版只允许 `describeOnly`；不提供 `--sql`、`--host`、`--database`、`--username`、`--password`；
+- 退出码：`0=passed`、`2=blocked`、`3=inconclusive/unavailable`、`4=wire/config error`；
+- 输出文件默认独占创建，覆盖必须显式 `--overwrite`；stdout 只输出 run ID、mode、status、
+  issue code、耗时和报告路径；
+- 数据库访问前会重算 Phase 2G/Phase 4 并比对携带报告；任何篡改都会阻断且不产生数据库调用；
+- 报告固定 `executable=false`；`passed` 只表示当前 profile 下描述门禁通过，不表示候选可执行、
+  已批准或可发布。
+
+在确认非生产 validation profile、最小权限账号和证书信任链之前（见
+[REQ-20260905-01](docs/requirements/REQ-20260905-01-restricted-sqlserver-validation.md) 第 21 节），
+保持该开关关闭，仅做离线契约与测试开发。
 
 ## 开发检查
 
@@ -195,12 +243,21 @@ uv run pytest
   权限；
 - Phase 3 Prompt 只请求单条参数化只读候选；Phase 4 已从 AST 独立重算首版静态安全证据，但不证明
   SQL Server 可接受、运行性能或业务结果正确；
-- 当前应用不定义 SQL 执行端口，不连接 SQL Server，也不保存、批准或发布候选；
+- Phase 5A 提供受限 describe-only 验证端口：加密连接、只读意图、非生产 profile、权限与快照漂移
+  证明、`sp_describe_first_result_set` 结果形状检查；它仍不执行候选取数、不生成执行计划、不保存
+  或批准候选；
+- 应用始终没有候选 SQL 执行/取数端口，也不保存、批准或发布候选；
 - SQL 只有在后续 AST、安全、受限试跑和人工审核全部通过后才可能发布。
 
 ## 文档导航
 
 - [文档总索引](docs/README.md)
+- [真实上游交接与端到端候选证据闭环需求](docs/requirements/REQ-20260906-02-real-upstream-handoff-evidence-loop.md)
+- [Agent 1、metadataReview、SqlBot 与运维责任边界](docs/decisions/BIZ-20260906-01-agent1-metadata-review-sqlbot-boundary.md)
+- [端到端真实候选证据编排设计与实施计划](docs/architecture/DEV-20260906-02-real-handoff-evidence-loop-orchestration.md)
+- [Phase 5 受限 SQL Server 验证需求](docs/requirements/REQ-20260905-01-restricted-sqlserver-validation.md)
+- [Phase 5 受限验证边界决策](docs/decisions/BIZ-20260905-01-restricted-sqlserver-validation-boundary.md)
+- [Phase 5 受限验证设计与实施计划](docs/architecture/DEV-20260905-01-restricted-sqlserver-validation.md)
 - [私有字段映射与来源资料索引](docs/reference/local-candidate-evidence/README.md)
 - [本地资料私有整合需求](docs/requirements/REQ-20260828-03-local-candidate-evidence-integration.md)
 - [本地候选证据与 Git 可见性边界](docs/decisions/BIZ-20260828-03-local-candidate-evidence-boundary.md)
@@ -229,7 +286,7 @@ uv run pytest
 - [双 Agent 职责决策](docs/decisions/BIZ-20260819-01-agent2-role-alignment.md)
 - [事实绑定技术方案](docs/architecture/DEV-20260819-01-fact-binding-contract.md)
 - [阶段路线图](docs/ROADMAP.md)
-- [当前进度](docs/progress/PROG-20260905.md)
+- [当前进度](docs/progress/PROG-20260906.md)
 
 旧的“整规则异常集合 SQL”文档作为历史记录保留，不再指导 SQL 生成；其中规则 JSON Schema 1.0
 只被复用于确定性的规则读取校验、canonicalization、哈希和 diff。

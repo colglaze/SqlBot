@@ -67,11 +67,47 @@ class Settings(BaseSettings):
     sqlserver_schema_allowlist: list[str] = Field(default_factory=list)
     sqlserver_metadata_workbook_path: str | None = None
 
+    # Phase 5A restricted SQL Server description validation. This switch is
+    # independent of `database_enabled` (MongoDB) and defaults to off.
+    sqlserver_validation_enabled: bool = False
+    sqlserver_validation_profile_id: str | None = Field(default=None, min_length=1, max_length=64)
+    sqlserver_validation_environment_class: Literal["development", "staging", "production"] = (
+        "development"
+    )
+    sqlserver_validation_allowed_modes: list[str] = Field(
+        default_factory=lambda: ["describeOnly"],
+    )
+    sqlserver_validation_max_concurrent_runs: int = Field(default=1, ge=1, le=16)
+    sqlserver_lock_timeout_milliseconds: int = Field(default=2000, ge=1, le=300_000)
+    sqlserver_validation_max_describe_rows: int = Field(default=1000, ge=1, le=100_000)
+    sqlserver_validation_max_describe_bytes: int = Field(default=1_000_000, ge=1024, le=50_000_000)
+    sqlserver_validation_parameter_hmac_key: SecretStr | None = None
+    sqlserver_supported_major_versions: list[int] = Field(
+        default_factory=lambda: [13, 14, 15, 16, 17],
+    )
+
     deepseek_api_key: SecretStr | None = None
     deepseek_base_url: AnyHttpUrl | None = None
     deepseek_model: str = Field(default="deepseek-v4-flash", min_length=1, max_length=160)
     deepseek_timeout_seconds: float = Field(default=90.0, ge=1.0, le=600.0)
     deepseek_max_retries: int = Field(default=2, ge=0, le=5)
+
+    # SqlBot-owned candidate template persistence (insert-only, separate from
+    # the read-only RuleReader intake adapters and from RSB_DATABASE_ENABLED).
+    candidate_store_enabled: bool = False
+    candidate_store_database: str = Field(
+        default="release_sql_bot",
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
+        min_length=1,
+        max_length=63,
+    )
+    candidate_store_collection: str = Field(
+        default="sql_template_candidates",
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
+        min_length=1,
+        max_length=120,
+    )
+
     sql_dialect: Literal["sqlserver"] = "sqlserver"
     temp_table_allowed: bool = False
 
@@ -90,7 +126,48 @@ class Settings(BaseSettings):
                 "MongoDB URI, database, and collection settings are required when database "
                 "integration is enabled."
             )
+        if self.candidate_store_enabled and not self._has_secret(self.mongodb_uri):
+            raise ValueError(
+                "A MongoDB URI is required when candidate template persistence is enabled."
+            )
+        self._validate_sqlserver_validation_safety()
         return self
+
+    def _validate_sqlserver_validation_safety(self) -> None:
+        if not self.sqlserver_validation_enabled:
+            return
+        if self.environment == "production":
+            raise ValueError("SQL Server validation cannot be enabled in a production service.")
+        if self.sqlserver_validation_environment_class == "production":
+            raise ValueError("SQL Server validation profiles can never target production.")
+        if not self.sqlserver_configured:
+            raise ValueError(
+                "SQL Server target and credential settings are required when validation is enabled."
+            )
+        if not self._has_text(self.sqlserver_validation_profile_id or ""):
+            raise ValueError("A validation profile ID is required when validation is enabled.")
+        if not self.sqlserver_encrypt or self.sqlserver_trust_server_certificate:
+            raise ValueError(
+                "SQL Server validation requires encrypted connections that do not trust "
+                "server certificates."
+            )
+        if self.sqlserver_validation_allowed_modes != ["describeOnly"]:
+            raise ValueError(
+                "Phase 5A validation only allows the describeOnly mode with default priority."
+            )
+        if (
+            not self._has_secret(self.sqlserver_validation_parameter_hmac_key)
+            or len(
+                self.sqlserver_validation_parameter_hmac_key.get_secret_value()  # type: ignore[union-attr]
+            )
+            < 16
+        ):
+            raise ValueError(
+                "A parameter HMAC key of at least 16 characters is required when validation "
+                "is enabled."
+            )
+        if not self.sqlserver_supported_major_versions:
+            raise ValueError("At least one supported SQL Server major version must be configured.")
 
     @staticmethod
     def _has_text(value: str | None) -> bool:
@@ -155,12 +232,30 @@ class Settings(BaseSettings):
             "sqlserver_metadata_workbook_configured": self._has_text(
                 self.sqlserver_metadata_workbook_path
             ),
+            "sqlserver_validation_enabled": self.sqlserver_validation_enabled,
+            "sqlserver_validation_profile_id": self.sqlserver_validation_profile_id,
+            "sqlserver_validation_environment_class": self.sqlserver_validation_environment_class,
+            "sqlserver_validation_allowed_modes": list(
+                self.sqlserver_validation_allowed_modes,
+            ),
+            "sqlserver_validation_max_concurrent_runs": (
+                self.sqlserver_validation_max_concurrent_runs
+            ),
+            "sqlserver_lock_timeout_milliseconds": self.sqlserver_lock_timeout_milliseconds,
+            "sqlserver_validation_max_describe_rows": self.sqlserver_validation_max_describe_rows,
+            "sqlserver_validation_max_describe_bytes": self.sqlserver_validation_max_describe_bytes,
+            "sqlserver_validation_parameter_hmac_key_configured": self._has_secret(
+                self.sqlserver_validation_parameter_hmac_key
+            ),
+            "sqlserver_supported_major_versions": list(self.sqlserver_supported_major_versions),
             "deepseek_configured": self.deepseek_configured,
             "deepseek_api_key_configured": self._has_secret(self.deepseek_api_key),
             "deepseek_base_url_configured": self.deepseek_base_url is not None,
             "deepseek_model": self.deepseek_model,
             "deepseek_timeout_seconds": self.deepseek_timeout_seconds,
             "deepseek_max_retries": self.deepseek_max_retries,
+            "candidate_store_enabled": self.candidate_store_enabled,
+            "candidate_store_configured": self._has_secret(self.mongodb_uri),
             "sql_dialect": self.sql_dialect,
             "temp_table_allowed": self.temp_table_allowed,
         }

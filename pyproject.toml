@@ -18,6 +18,7 @@ dependencies = [
     "pydantic-settings>=2.14.2,<2.15",
     "uvicorn>=0.51,<0.52",
     "sqlglot>=30.17,<30.18",
+    "pyodbc>=5.2,<5.3",
 ]
 
 [project.scripts]

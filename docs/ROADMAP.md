@@ -133,14 +133,41 @@
 - 纯计算 API 与真实 parser 合成攻击回归完全离线，不连接、准备、解释或执行 SQL Server；
 - `passed` 报告与候选仍固定不可执行，不改变审批状态，也不清除 blocking uncertainty。
 
+### Phase 4R：真实上游交接与端到端候选证据闭环
+
+状态：**已规划，未实施（REQ-20260906-02 / BIZ-20260906-01 / DEV-20260906-02，均 proposed）**
+
+本阶段定位于 Phase 5A（已完成，不依赖本阶段）与 Phase 5B/5C 之间，是进入 5B 的前置门禁：
+
+- 精确、不可变、可回读的 Agent 1 规则版本与完整事实级 handoff（`blockingRequestCount=0`）；
+- 批准的 `ProjectBindingContextV2` 与匹配的 `GovernedMetadataSnapshot`（缺任一即
+  `blockedUpstream`，不用合成数据冒充真实业务就绪）；
+- 真实 handoff intake 与 Phase 2G 重算为 `metadataResolved`；
+- 单事实在线候选生成（用户当次明确授权）、insert-only 候选持久化与 Phase 4 静态 `passed`；
+- 形成不含业务结果值和秘密的端到端证据包，公开 PROG 只保存脱敏哈希、数量与状态；
+- 关键前置：Agent 1 侧已批准 V3（`FactBindingRequest 3.0.0`）路径；若跨仓库确认维持，SqlBot
+  intake 升级是独立需求。交接契约版本决策未登记前，本阶段保持阻断。
+
 ## Phase 5：受限 SQL Server 验证
 
-状态：**待规划**
+状态：**5A 已完成（离线）；5B/5C 待实施（REQ-20260905-01 / BIZ-20260905-01 / DEV-20260905-01）**
 
-- 使用 Phase 2G 已批准并版本化的 SqlBot 元数据快照，不在验证时临时发现或扩大授权范围；
-- 使用最小权限只读账号进行有超时、结果限制和取消能力的验证；
-- 最新规则继续只读查询 RuleReader 的 `rule_versions`，不修改该集合；SqlBot 自有元数据和审计
-  集合使用独立 migration。
+- Phase 5A 已交付（2026-09-06）：严格 V2 请求/报告契约、数据库前完整 Phase 2G/4 重算与携带报告
+  比对、token 级确定性参数 binder、独立 validation switch 与非生产 profile 配置、ODBC describe-only
+  adapter（加密、固定 session policy、目标身份/最小权限/批准快照漂移/`sp_describe_first_result_set`
+  结果描述探测）和本地 CLI；candidate 不取数，报告始终 `executable=false`；
+  真实数据库冒烟仍需按 REQ 第 21 节确认非生产目标与最小权限账号；
+- Phase 5B 在 5A 同一闭包通过后获取估算计划，不获取实际计划、不执行 candidate；未实施；
+- Phase 5C 只在非生产、合成/脱敏参数和用户当次明确授权下做有界试跑；未实施；
+- 全部验证只提供本地 CLI，不在当前无调用方鉴权的 FastAPI 上新增 live validation 入口；
+- 使用最小权限只读账号，设置连接/命令/锁等待/成本/行数/字节/并发限制和取消能力；
+- 每一级都重新计算 Phase 2G/4，不在验证时临时发现、选择“最新”或扩大授权范围；
+- 报告始终 `executable=false`，不改变候选审核状态；
+- 最新规则继续只读查询 RuleReader 的 `rule_versions`，不修改该集合；未来 SqlBot 自有审计集合使用
+  独立 migration。
+
+进入 Phase 5B/5C 实现前仍必须按 REQ 第 21 节确认各自前置条件，并完成 Phase 4R 的真实候选证据
+闭环；缺少证据时保持阻断。
 
 ## Phase 6：人工审核与候选发布
 
