@@ -187,10 +187,18 @@ def main(argv: list[str] | None = None) -> int:
         print("合成输入未形成精确 metadataResolved 闭包，预览中止。", file=sys.stderr)
         return 3
     except CandidateGenerationOutputInvalidV2Error:
-        print(
-            "在线模型响应未通过严格输出门禁，未形成有效候选；可直接重跑一次。",
-            file=sys.stderr,
-        )
+        # 到达这里时内部有界重试（maxRetries + 1）已经耗尽，不能暗示自动重跑。
+        if args.live:
+            print(
+                "模型响应在本次有界尝试内未通过严格输出门禁，未形成有效候选；"
+                "如需再次调用在线模型，须重新取得当次任务授权。",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "候选生成响应未通过严格输出门禁，未形成有效候选。",
+                file=sys.stderr,
+            )
         return 4
     except CandidateGenerationProviderRejectedV2Error:
         print(
