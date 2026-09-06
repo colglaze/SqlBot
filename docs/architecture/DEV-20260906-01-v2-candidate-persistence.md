@@ -1,6 +1,6 @@
 # DEV-20260906-01：V2 候选模板 MongoDB 持久化设计
 
-- 状态：`approved`
+- 状态：`completed`
 - 创建日期：2026-09-06
 - 实现需求：[REQ-20260906-01](../requirements/REQ-20260906-01-v2-candidate-persistence.md)
 
@@ -74,7 +74,8 @@ class CandidateTemplateStore(Protocol):
   RuleReader 库（`rule_versions`、`fact_binding_handoffs`）路径完全不经过本适配器；
 - `RSB_MONGODB_READ_ONLY=true` 的只读校验仍只约束 intake 适配器语义；候选存储由独立开关与
   独立库/集合边界约束；
-- 日志只允许：candidate contentSha256 前缀、存储结果、模板代码；禁止 URI、凭据、SQL 文本。
+- 日志只允许：candidate contentSha256 前缀、存储结果、模板代码；禁止 URI、凭据、SQL 文本、
+  数据库/集合名称。`initialize` 成功日志必须是不含任何定位信息的固定安全文案。
 
 ## 6. 测试
 
@@ -82,3 +83,26 @@ class CandidateTemplateStore(Protocol):
   insert 异常 → FAILED；
 - 编排：开关关闭 store 为 None 且 save 零调用；存储异常不影响生成结果；
 - 设置：开关开启但 URI 缺失 → 配置失败；库名/集合名形状校验；safe_summary 只含布尔。
+
+## 7. 实施与验收记录（2026-09-06）
+
+- 实现提交：`255196f0534ce5c3fbd1c534bb96143f90c93d5c`
+  （`feat: persist generated v2 candidates to mongodb collection`）。落地范围与本设计第 2 节
+  模块清单一致：`application/ports/candidate_store.py`、`application/candidates_v2.py` 编排、
+  `infrastructure/database/mongodb_candidates.py` 适配器、`application/runtime.py` 容器字段、
+  `infrastructure/database/__init__.py` 装配、`api/app.py` 按开关路由，另有本设计文档与
+  [REQ-20260906-01](../requirements/REQ-20260906-01-v2-candidate-persistence.md)。
+- 文档形状、唯一索引、insert-only、幂等与失败降级语义均按第 3、4 节实现，未放宽：
+  写路径仅 `insert_one` 与 `create_index`，无 update/replace/delete。
+- 日志白名单偏差处理：初版实现的 `initialize` 成功日志输出 database/collection 名称，超出第 5 节
+  白名单（DEV-20260906-02 第 6 节前置验收登记为低严重度发现，给出"收敛日志或修订白名单"两个
+  选项）。本任务选定**收敛日志**：成功日志改为固定安全文案，第 5 节白名单同步明确禁止
+  数据库/集合名称；`tests/unit/test_candidate_store.py` 新增 5 项日志卫生测试，断言成功、失败、
+  幂等日志均不含数据库名、集合名、URI、凭据、SQL 与驱动错误细节。
+- 验收证据（全部离线，未连接真实 MongoDB/SQL Server，未调用在线模型）：
+  `uv run pytest tests/unit/test_candidate_store.py` → `17 passed`；`uv run pytest` →
+  `391 passed`；`uv run ruff check .` 与 `uv run ruff format --check .` 通过；
+  `git diff --check` 通过。
+- 保持开放（不随 `completed` 关闭）：真实 MongoDB integration 测试未执行；实际部署账号对本库的
+  建集合/写权限未验证；持久化不代表审批或可执行，候选仍固定
+  `executable=false / reviewStatus=pending`。

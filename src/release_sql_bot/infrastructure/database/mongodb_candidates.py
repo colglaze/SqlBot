@@ -3,7 +3,7 @@
 Insert-only sink on a dedicated database/collection owned by ReleaseSQLBot.
 The RuleReader databases and collections are never touched by this adapter.
 All failures degrade to outcome values; nothing here can break the generation
-flow, and no URI, credential, or SQL text is ever logged.
+flow, and no URI, credential, SQL text, or store location is ever logged.
 """
 
 from __future__ import annotations
@@ -77,11 +77,7 @@ class MongoCandidateStore:
             self._client = client
             self._collection = collection
             self._ready = True
-            logger.info(
-                "候选模板存储就绪（database=%s, collection=%s）",
-                self._settings.candidate_store_database,
-                self._settings.candidate_store_collection,
-            )
+            logger.info("候选模板存储就绪，insert-only 持久化已启用")
         except (OSError, PyMongoError, ValueError):
             if client is not None:
                 with suppress(OSError, PyMongoError):

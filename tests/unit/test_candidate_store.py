@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 import pytest
@@ -236,6 +237,110 @@ def test_store_index_failure_degrades_to_unavailable() -> None:
     assert collection.inserted == []
     asyncio.run(store.close())
     assert client.closed is True
+
+
+# ---------------------------------------------------------------------------
+# Log hygiene (DEV-20260906-01 §5 log whitelist)
+# ---------------------------------------------------------------------------
+
+
+def _assert_store_logs_stay_whitelisted(caplog, candidate: Any | None = None) -> None:
+    for token in (
+        "storedb",  # database name
+        "storecoll",  # collection name
+        "mongodb://",  # connection URI
+        "127.0.0.1",  # connection host
+        "synthetic:synthetic",  # URI credentials
+        "authSource",  # URI option
+        "SELECT amounts.total_amount",  # candidate SQL text
+    ):
+        assert token not in caplog.text, f"store log must not contain {token!r}"
+    if candidate is not None:
+        assert candidate.sql_template not in caplog.text
+
+
+def test_initialize_success_log_omits_store_location(caplog) -> None:
+    collection = FakeCollection()
+    store, _client = build_store(
+        collection,
+        candidate_store_database="storedb",
+        candidate_store_collection="storecoll",
+    )
+    with caplog.at_level(logging.INFO):
+        asyncio.run(store.initialize())
+    assert "候选模板存储就绪" in caplog.text
+    _assert_store_logs_stay_whitelisted(caplog)
+
+
+def test_initialize_failure_log_omits_driver_error_details(caplog) -> None:
+    collection = FakeCollection()
+    collection.index_error = PyMongoError("not authorized on storedb.storecoll")
+    store, _client = build_store(
+        collection,
+        candidate_store_database="storedb",
+        candidate_store_collection="storecoll",
+    )
+    with caplog.at_level(logging.INFO):
+        asyncio.run(store.initialize())
+    assert store.ready is False
+    assert "候选模板存储初始化失败" in caplog.text
+    assert "not authorized" not in caplog.text
+    _assert_store_logs_stay_whitelisted(caplog)
+
+
+def test_save_success_log_stays_within_whitelist(caplog) -> None:
+    collection = FakeCollection()
+    store, _client = build_store(
+        collection,
+        candidate_store_database="storedb",
+        candidate_store_collection="storecoll",
+    )
+    candidate = _candidate()
+    with caplog.at_level(logging.INFO):
+        asyncio.run(store.initialize())
+        outcome = asyncio.run(store.save(candidate))
+    assert outcome.status is CandidateStoreStatus.STORED
+    assert "候选模板已写入" in caplog.text
+    _assert_store_logs_stay_whitelisted(caplog, candidate)
+
+
+def test_duplicate_log_omits_driver_error_details(caplog) -> None:
+    collection = FakeCollection()
+    collection.insert_error = DuplicateKeyError(
+        "E11000 duplicate key collection: storedb.storecoll index: ux_content_sha256"
+    )
+    store, _client = build_store(
+        collection,
+        candidate_store_database="storedb",
+        candidate_store_collection="storecoll",
+    )
+    candidate = _candidate()
+    with caplog.at_level(logging.INFO):
+        asyncio.run(store.initialize())
+        outcome = asyncio.run(store.save(candidate))
+    assert outcome.status is CandidateStoreStatus.DUPLICATE
+    assert "候选模板已存在" in caplog.text
+    assert "E11000" not in caplog.text
+    _assert_store_logs_stay_whitelisted(caplog, candidate)
+
+
+def test_save_failure_log_omits_driver_error_details(caplog) -> None:
+    collection = FakeCollection()
+    collection.insert_error = PyMongoError("write failed: quota exceeded for storedb")
+    store, _client = build_store(
+        collection,
+        candidate_store_database="storedb",
+        candidate_store_collection="storecoll",
+    )
+    candidate = _candidate()
+    with caplog.at_level(logging.INFO):
+        asyncio.run(store.initialize())
+        outcome = asyncio.run(store.save(candidate))
+    assert outcome.status is CandidateStoreStatus.FAILED
+    assert "候选模板写入失败" in caplog.text
+    assert "write failed" not in caplog.text
+    assert "quota exceeded" not in caplog.text
+    _assert_store_logs_stay_whitelisted(caplog, candidate)
 
 
 # ---------------------------------------------------------------------------
