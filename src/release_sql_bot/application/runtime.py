@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from release_sql_bot.application.ports.candidate_store import CandidateTemplateStore
 from release_sql_bot.application.ports.candidates import CandidateModelProvider
 from release_sql_bot.application.ports.database import DatabaseInitializer
-from release_sql_bot.application.ports.handoffs import FactBindingHandoffRepository
+from release_sql_bot.application.ports.handoffs import (
+    FactBindingHandoffBatchRepositoryV3,
+    FactBindingHandoffRepository,
+)
 from release_sql_bot.application.ports.rules import RuleRepository
 from release_sql_bot.application.readiness import ReadinessGraph
 from release_sql_bot.config.settings import Settings
@@ -18,6 +21,7 @@ class DatabaseResources:
     initializer: DatabaseInitializer
     rule_repository: RuleRepository | None
     fact_binding_repository: FactBindingHandoffRepository | None = None
+    fact_binding_batch_repository_v3: FactBindingHandoffBatchRepositoryV3 | None = None
     candidate_store: CandidateTemplateStore | None = None
 
 
@@ -27,6 +31,7 @@ class RuntimeContainer:
     database: DatabaseInitializer
     rule_repository: RuleRepository | None
     fact_binding_repository: FactBindingHandoffRepository | None
+    fact_binding_batch_repository_v3: FactBindingHandoffBatchRepositoryV3 | None
     candidate_provider: CandidateModelProvider | None
     candidate_store: CandidateTemplateStore | None
     readiness_graph: ReadinessGraph

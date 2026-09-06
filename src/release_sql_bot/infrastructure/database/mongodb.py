@@ -13,6 +13,8 @@ from pymongo.errors import PyMongoError
 
 from release_sql_bot.application.ports.database import DatabaseStatus
 from release_sql_bot.application.ports.handoffs import (
+    FactBindingHandoffBatchDocumentInvalidV3Error,
+    FactBindingHandoffBatchRepositoryV3UnavailableError,
     FactBindingHandoffDocumentInvalidError,
     FactBindingHandoffRepositoryUnavailableError,
 )
@@ -22,6 +24,7 @@ from release_sql_bot.application.ports.rules import (
 )
 from release_sql_bot.config.settings import Settings
 from release_sql_bot.domain.fact_binding_handoffs_v2 import StoredFactBindingHandoffV2
+from release_sql_bot.domain.fact_binding_handoffs_v3 import StoredFactBindingHandoffBatchV3
 from release_sql_bot.domain.rule_versions import StoredRuleVersion
 
 logger = logging.getLogger(__name__)
@@ -43,6 +46,7 @@ class MongoRuleStore:
         self._client: Any | None = None
         self._rule_collection: Any | None = None
         self._handoff_collection: Any | None = None
+        self._batch_collection_v3: Any | None = None
         self._status = DatabaseStatus.UNAVAILABLE
 
     @property
@@ -78,6 +82,9 @@ class MongoRuleStore:
             database = client[self._settings.mongodb_database]
             self._rule_collection = database[self._settings.mongodb_rule_collection]
             self._handoff_collection = database[self._settings.mongodb_fact_binding_collection]
+            self._batch_collection_v3 = database[
+                self._settings.mongodb_fact_binding_batch_collection
+            ]
             self._status = DatabaseStatus.READY
         except (OSError, PyMongoError, ValueError):
             if client is not None:
@@ -86,6 +93,7 @@ class MongoRuleStore:
             self._client = None
             self._rule_collection = None
             self._handoff_collection = None
+            self._batch_collection_v3 = None
             self._status = DatabaseStatus.UNAVAILABLE
             logger.warning("MongoDB 规则仓储初始化失败，连接信息已隐藏")
         return self._status
@@ -95,6 +103,7 @@ class MongoRuleStore:
         self._client = None
         self._rule_collection = None
         self._handoff_collection = None
+        self._batch_collection_v3 = None
         self._status = DatabaseStatus.UNAVAILABLE
         if client is not None:
             with suppress(OSError, PyMongoError):
@@ -155,6 +164,38 @@ class MongoRuleStore:
             raise FactBindingHandoffDocumentInvalidError(
                 "事实交接包装不符合 RuleReader V2 存储契约"
             ) from None
+
+    async def get_batch_by_rule_version(
+        self,
+        rule_version: str,
+    ) -> StoredFactBindingHandoffBatchV3 | None:
+        if self._status is not DatabaseStatus.READY or self._batch_collection_v3 is None:
+            raise FactBindingHandoffBatchRepositoryV3UnavailableError(
+                "V3 事实交接批次只读仓储当前不可用"
+            )
+
+        try:
+            document = await self._batch_collection_v3.find_one(
+                {"rule_version": rule_version},
+                comment="release-sql-bot-fact-binding-handoff-batches-v3",
+            )
+        except (OSError, PyMongoError):
+            self._status = DatabaseStatus.UNAVAILABLE
+            raise FactBindingHandoffBatchRepositoryV3UnavailableError(
+                "V3 事实交接批次只读查询失败"
+            ) from None
+
+        if document is None:
+            return None
+
+        try:
+            batch = StoredFactBindingHandoffBatchV3.model_validate(document)
+            batch.model_dump(mode="json", by_alias=True)
+        except (ValidationError, ValueError):
+            raise FactBindingHandoffBatchDocumentInvalidV3Error(
+                "事实交接批次不符合 RuleReader V3 存储契约"
+            ) from None
+        return batch
 
     def _tls_options(self) -> dict[str, str]:
         if self._settings.mongodb_tls_ca_file is None:

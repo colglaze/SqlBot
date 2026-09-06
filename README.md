@@ -21,6 +21,11 @@ ReleaseSQLBot 是双 Agent 方案中的 Agent 2：消费 RuleReader（Agent 1）
   `readyForMetadataResolution`；
 - 按调用方给出的精确 `ruleVersion` 只读消费 RuleReader `fact_binding_handoffs`，同时校验存储包装、
   固定上游 JSON Schema、来源闭包与 canonical payload hash；任一 blocking 记录使整批阻断；
+- 按调用方给出的精确 `ruleVersion` 只读消费 RuleReader `fact_binding_handoff_batches_v3` 单文档
+  原子批次（Schema v5）：冻结上游 `FactBindingRequest 3.0.0` Schema 副本（来源 SHA-256 固定）、
+  独立严格 camelCase consumer、wrapper/payload/batch canonical hash、身份与 evidence 闭包校验，
+  任一坏请求使整批 fail closed；合法 V3 批次固定 `readyForMetadataResolution`、`executable=false`，
+  不调用候选 provider，也不做任何 V3↔V2 转换；
 - 将六类未决语义及任意上游 blocking uncertainty 在模型调用前阻断；候选映射、来源、Prompt 和模型
   声明都不被当作表列授权；
 - 独立消费版本化 `ProjectBindingContextV2` 与 `GovernedMetadataSnapshot`，重新计算上下文、快照和
@@ -79,6 +84,7 @@ uv run release-sql-bot serve
 - `GET http://127.0.0.1:8010/ready`：运行 LangGraph 就绪图；
 - `GET http://127.0.0.1:8010/api/v1/rules/latest?ruleId=REPORT_RELEASE_ALL_001`：读取该规则 ID 的最新版本；
 - `GET http://127.0.0.1:8010/api/v1/fact-binding-handoffs/v2?ruleVersion=<exact-version>`：只读校验精确版本 V2 交接；
+- `GET http://127.0.0.1:8010/api/v1/fact-binding-handoffs/v3?ruleVersion=<exact-version>`：只读校验精确版本 V3 交接批次；
 - `POST http://127.0.0.1:8010/api/v1/fact-bindings/v2/analyze`：无副作用分析 V2 契约与阻断缺口；
 - `POST http://127.0.0.1:8010/api/v1/fact-bindings/v2/resolve-metadata`：纯计算解析 V2 项目物理授权；
 - `POST http://127.0.0.1:8010/api/v1/sql-candidates/v2/generate`：V2 候选生成；输入会重算 Phase 2G；
@@ -157,6 +163,7 @@ flowchart LR
 | `RSB_MONGODB_URI` | 未配置 |
 | `RSB_MONGODB_DATABASE` | `rule_reader` |
 | `RSB_MONGODB_FACT_BINDING_COLLECTION` | `fact_binding_handoffs` |
+| `RSB_MONGODB_FACT_BINDING_BATCH_COLLECTION` | `fact_binding_handoff_batches_v3` |
 | `RSB_MONGODB_RULE_COLLECTION` | `rule_versions` |
 | `RSB_MONGODB_READ_ONLY` | `true` |
 | `RSB_MONGODB_OPERATION_TIMEOUT_SECONDS` | `5` |
@@ -252,6 +259,9 @@ uv run pytest
 ## 文档导航
 
 - [文档总索引](docs/README.md)
+- [FactBindingRequest 3.0.0 intake 升级需求](docs/requirements/REQ-20260906-03-fact-binding-v3-intake.md)
+- [FactBindingRequest 3.0.0 intake 权威边界](docs/decisions/BIZ-20260906-02-fact-binding-v3-authority-boundary.md)
+- [FactBindingRequest 3.0.0 intake 设计与实施计划](docs/architecture/DEV-20260906-03-fact-binding-v3-intake.md)
 - [真实上游交接与端到端候选证据闭环需求](docs/requirements/REQ-20260906-02-real-upstream-handoff-evidence-loop.md)
 - [Agent 1、metadataReview、SqlBot 与运维责任边界](docs/decisions/BIZ-20260906-01-agent1-metadata-review-sqlbot-boundary.md)
 - [端到端真实候选证据编排设计与实施计划](docs/architecture/DEV-20260906-02-real-handoff-evidence-loop-orchestration.md)

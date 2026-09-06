@@ -1,0 +1,12 @@
+{
+  "schemaId": "urn:rulereader:fact-binding-request:3.0.0",
+  "contractVersion": "3.0.0",
+  "sourceRepository": "RuleReader",
+  "sourcePath": "contracts/fact-binding-request-3.0.0.schema.json",
+  "sha256": "2c5e4603cda243a84f5ec1c47ee65d3e377598fed86b1ddab5a167a2c342c566",
+  "observedAt": "2026-09-06",
+  "consumerFixture": "tests/fixtures/fact-binding-request-3.0.0.synthetic-ready.json",
+  "fixtureDataClassification": "synthetic-redacted",
+  "sourceHeadAtObservation": "65a96846b3ae991b42a8159dbbee43a9bbe15846",
+  "upstreamCommittedAtObservation": false
+}

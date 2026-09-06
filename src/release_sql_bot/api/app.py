@@ -31,9 +31,15 @@ from release_sql_bot.application.handoff_intake_v2 import (
     FactBindingHandoffNotFoundError,
     intake_fact_binding_handoffs_v2,
 )
+from release_sql_bot.application.handoff_intake_v3 import (
+    FactBindingHandoffBatchInvalidErrorV3,
+    FactBindingHandoffBatchNotFoundErrorV3,
+    intake_fact_binding_handoffs_v3,
+)
 from release_sql_bot.application.metadata_resolution_v2 import resolve_metadata_v2
 from release_sql_bot.application.ports.candidates import CandidateModelProvider
 from release_sql_bot.application.ports.handoffs import (
+    FactBindingHandoffBatchRepositoryV3UnavailableError,
     FactBindingHandoffRepositoryUnavailableError,
 )
 from release_sql_bot.application.ports.rules import (
@@ -53,6 +59,9 @@ from release_sql_bot.config.logging import configure_logging
 from release_sql_bot.config.settings import Settings, get_settings
 from release_sql_bot.domain.fact_binding_handoffs_v2 import (
     FactBindingHandoffIntakeBatchV2,
+)
+from release_sql_bot.domain.fact_binding_handoffs_v3 import (
+    FactBindingHandoffIntakeBatchV3,
 )
 from release_sql_bot.domain.fact_bindings import (
     BindingReadiness,
@@ -115,6 +124,7 @@ def create_app(
             database=database,
             rule_repository=resources.rule_repository,
             fact_binding_repository=resources.fact_binding_repository,
+            fact_binding_batch_repository_v3=resources.fact_binding_batch_repository_v3,
             candidate_provider=(
                 candidate_provider
                 if candidate_provider is not None
@@ -241,6 +251,62 @@ def create_app(
         payload: ResolveMetadataRequestV2,
     ) -> BindingResolutionReportV2:
         return resolve_metadata_v2(payload)
+
+    @app.get(
+        "/api/v1/fact-binding-handoffs/v3",
+        response_model=FactBindingHandoffIntakeBatchV3,
+        tags=["fact-bindings"],
+    )
+    async def read_fact_binding_handoffs_v3(
+        request: Request,
+        rule_version: Annotated[
+            str,
+            Query(
+                alias="ruleVersion",
+                min_length=1,
+                max_length=260,
+                pattern=r"^[A-Za-z0-9][A-Za-z0-9._@-]*$",
+            ),
+        ],
+    ) -> FactBindingHandoffIntakeBatchV3:
+        runtime: RuntimeContainer = request.app.state.runtime
+        if runtime.fact_binding_batch_repository_v3 is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "FACT_BINDING_HANDOFF_V3_REPOSITORY_UNAVAILABLE",
+                    "message": "RuleReader V3 事实交接批次只读仓储未启用",
+                },
+            )
+        try:
+            return await intake_fact_binding_handoffs_v3(
+                runtime.fact_binding_batch_repository_v3,
+                rule_version,
+            )
+        except FactBindingHandoffBatchNotFoundErrorV3:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": "FACT_BINDING_HANDOFF_V3_NOT_FOUND",
+                    "message": "精确规则版本没有 V3 事实交接批次",
+                },
+            ) from None
+        except FactBindingHandoffBatchInvalidErrorV3:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "code": "FACT_BINDING_HANDOFF_V3_INVALID",
+                    "message": "RuleReader V3 事实交接批次未通过 intake 门禁",
+                },
+            ) from None
+        except FactBindingHandoffBatchRepositoryV3UnavailableError:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "FACT_BINDING_HANDOFF_V3_REPOSITORY_UNAVAILABLE",
+                    "message": "RuleReader V3 事实交接批次只读仓储当前不可用",
+                },
+            ) from None
 
     @app.post(
         "/api/v1/sql-candidates/generate",

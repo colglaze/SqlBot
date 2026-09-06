@@ -157,6 +157,7 @@ def test_mongodb_store_manages_lifecycle_and_queries_latest_without_cache() -> N
     assert client.database.requested_collections == [
         "rule_versions",
         "fact_binding_handoffs",
+        "fact_binding_handoff_batches_v3",
     ]
     _, client_options = factory.calls[0]
     assert client_options["read_preference"] is ReadPreference.PRIMARY

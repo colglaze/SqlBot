@@ -1,0 +1,176 @@
+{
+  "contractVersion": "3.0.0",
+  "status": "candidate",
+  "executable": false,
+  "requestId": "SYNTH_RULE_SET@20260906T000000000000Z-a1b2c3d4e5f6#report.synthetic_amount",
+  "ruleRef": {
+    "ruleSetId": "SYNTH_RULE_SET",
+    "ruleVersion": "SYNTH_RULE_SET@20260906T000000000000Z-a1b2c3d4e5f6",
+    "schemaVersion": "3.0.0",
+    "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "catalogDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "candidatePayloadSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "fact": {
+    "factCode": "report.synthetic_amount",
+    "name": "Synthetic release amount",
+    "factKind": "source",
+    "dataType": "integer",
+    "description": "Synthetic offline test fact; not a real business field.",
+    "nullable": false,
+    "nullPolicy": "fail",
+    "grain": "synthetic_grain",
+    "parameters": [
+      {
+        "name": "syntheticKey",
+        "role": "entityKey",
+        "dataType": "string",
+        "required": true,
+        "description": "Synthetic entity key parameter."
+      }
+    ],
+    "allowedValues": [],
+    "unit": null
+  },
+  "queryRequirements": {
+    "entity": {
+      "entityType": "synthetic_entity",
+      "grain": "synthetic_grain",
+      "keyParameters": [
+        "syntheticKey"
+      ],
+      "evidenceIds": [
+        "ev-fact-declaration"
+      ]
+    },
+    "fields": [
+      {
+        "fieldId": "factValue",
+        "role": "value",
+        "logicalName": "report.synthetic_amount",
+        "dataType": "integer",
+        "required": true,
+        "evidenceIds": [
+          "ev-fact-declaration"
+        ]
+      }
+    ],
+    "filters": {
+      "items": [],
+      "completeness": "complete",
+      "evidenceIds": [
+        "ev-query-requirement"
+      ]
+    },
+    "aggregation": {
+      "mode": "none",
+      "function": null,
+      "inputFieldIds": [],
+      "groupByFieldIds": [],
+      "distinct": null,
+      "evidenceIds": [
+        "ev-query-requirement"
+      ]
+    },
+    "timeRange": {
+      "mode": "none",
+      "timeFieldId": null,
+      "start": null,
+      "end": null,
+      "timezone": null,
+      "evidenceIds": [
+        "ev-query-requirement"
+      ]
+    },
+    "result": {
+      "columnName": "fact_value",
+      "dataType": "integer",
+      "cardinality": "scalar",
+      "nullable": false,
+      "nullPolicy": "fail",
+      "unit": null
+    }
+  },
+  "usages": [
+    {
+      "stage": "eligibility",
+      "ruleCode": "SYNTH_RULE",
+      "priority": 1,
+      "conditionId": "cond-synthetic-001",
+      "conditionPath": "/rule/stages/eligibility/1",
+      "outcome": "READY",
+      "evidenceIds": [
+        "ev-condition-usage"
+      ]
+    }
+  ],
+  "examples": [
+    {
+      "exampleId": "example-synthetic-001",
+      "value": 1,
+      "expectedOutcome": "READY",
+      "evidenceIds": [
+        "ev-example"
+      ]
+    }
+  ],
+  "mappingCandidate": {
+    "factCode": "report.synthetic_amount",
+    "mappingStatus": "unresolved",
+    "viewName": null,
+    "viewField": null,
+    "viewActive": null,
+    "reviewStatus": "candidate",
+    "note": "Synthetic unresolved mapping candidate for offline intake tests."
+  },
+  "provenance": {
+    "sourceName": "synthetic-rule.md",
+    "relativePath": null,
+    "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "sourceCharacterCount": 1024,
+    "parserVersion": "0.0.0-synthetic",
+    "promptVersion": "synthetic-v3",
+    "provider": "reviewed_import",
+    "model": "synthetic-model"
+  },
+  "evidence": [
+    {
+      "evidenceId": "ev-fact-declaration",
+      "kind": "factDeclaration",
+      "sourceDocument": "ruleResult",
+      "sourcePath": "/facts/report.synthetic_amount"
+    },
+    {
+      "evidenceId": "ev-condition-usage",
+      "kind": "conditionUsage",
+      "sourceDocument": "ruleResult",
+      "sourcePath": "/rule/stages/eligibility/1"
+    },
+    {
+      "evidenceId": "ev-query-requirement",
+      "kind": "queryRequirement",
+      "sourceDocument": "ruleResult",
+      "sourcePath": "/queryRequirements"
+    },
+    {
+      "evidenceId": "ev-example",
+      "kind": "example",
+      "sourceDocument": "ruleResult",
+      "sourcePath": "/testCases/0"
+    }
+  ],
+  "uncertainties": [
+    {
+      "uncertaintyId": "unc-synthetic-001",
+      "code": "SYNTHETIC_WARNING",
+      "impact": "warning",
+      "reason": "Synthetic warning uncertainty preserved by intake.",
+      "evidenceIds": [
+        "ev-example"
+      ]
+    }
+  ],
+  "targetDialect": "sqlserver",
+  "requiresMetadataSnapshot": true,
+  "tempTableAllowed": false
+}

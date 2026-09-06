@@ -9,6 +9,7 @@ from release_sql_bot.api.app import create_app
 from release_sql_bot.application.ports.candidates import CandidateModelResponse
 from release_sql_bot.application.ports.database import DatabaseStatus
 from release_sql_bot.application.ports.handoffs import (
+    FactBindingHandoffBatchRepositoryV3UnavailableError,
     FactBindingHandoffRepositoryUnavailableError,
 )
 from release_sql_bot.application.ports.rules import (
@@ -18,6 +19,7 @@ from release_sql_bot.application.ports.rules import (
 from release_sql_bot.application.runtime import DatabaseResources
 from release_sql_bot.config.settings import Settings
 from release_sql_bot.domain.fact_binding_handoffs_v2 import StoredFactBindingHandoffV2
+from release_sql_bot.domain.fact_binding_handoffs_v3 import StoredFactBindingHandoffBatchV3
 from release_sql_bot.domain.rule_versions import StoredRuleVersion
 from tests.fakes import FixedCandidateModelProvider, FixedSqlDialectInspector
 from tests.handoff_support import valid_handoff_document
@@ -33,6 +35,7 @@ from tests.support import (
     valid_generated_candidate_content,
     valid_stored_rule_version,
 )
+from tests.v3_handoff_support import valid_batch_document
 
 ROOT = Path(__file__).resolve().parents[2]
 V2_FIXTURE_PATH = ROOT / "tests" / "fixtures" / "fact-binding-request-2.0.0.synthetic-blocked.json"
@@ -217,6 +220,97 @@ def test_v2_handoff_read_intake_is_unavailable_when_database_is_disabled() -> No
 
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == ("FACT_BINDING_HANDOFF_REPOSITORY_UNAVAILABLE")
+
+
+class ApiV3BatchRepository:
+    def __init__(self, responses) -> None:
+        self._responses = iter(responses)
+        self.calls: list[str] = []
+
+    async def get_batch_by_rule_version(self, rule_version: str):
+        self.calls.append(rule_version)
+        response = next(self._responses)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+def _app_with_v3_batch_responses(responses, provider=None):
+    repository = ApiV3BatchRepository(responses)
+    app = create_app(
+        Settings(_env_file=None, environment="test"),
+        DatabaseResources(
+            initializer=ReadyInitializer(),
+            rule_repository=None,
+            fact_binding_batch_repository_v3=repository,
+        ),
+        candidate_provider=provider,
+    )
+    return app, repository
+
+
+def test_v3_handoff_read_intake_succeeds_and_never_calls_provider() -> None:
+    stored = StoredFactBindingHandoffBatchV3.model_validate(valid_batch_document())
+    provider = FixedCandidateModelProvider([])
+    app, repository = _app_with_v3_batch_responses([stored], provider)
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/v1/fact-binding-handoffs/v3",
+            params={"ruleVersion": stored.rule_version},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "readyForMetadataResolution"
+    assert body["executable"] is False
+    assert body["requestCount"] == 1
+    assert body["batchSha256"] == stored.batch_sha256
+    assert body["requests"][0]["payload"] == stored.requests[0].payload.model_dump(
+        by_alias=True, mode="json"
+    )
+    assert repository.calls == [stored.rule_version]
+    assert provider.calls == []
+
+
+def test_v3_handoff_read_intake_maps_safe_not_found_invalid_and_unavailable_errors() -> None:
+    stored = StoredFactBindingHandoffBatchV3.model_validate(valid_batch_document())
+    invalid_document = valid_batch_document()
+    invalid_document["batch_sha256"] = "e" * 64
+    invalid = StoredFactBindingHandoffBatchV3.model_validate(invalid_document)
+    unavailable = FactBindingHandoffBatchRepositoryV3UnavailableError("mongo-secret.example")
+    app, _ = _app_with_v3_batch_responses([None, invalid, unavailable])
+
+    with TestClient(app) as client:
+        responses = [
+            client.get(
+                "/api/v1/fact-binding-handoffs/v3",
+                params={"ruleVersion": stored.rule_version},
+            )
+            for _ in range(3)
+        ]
+
+    assert [response.status_code for response in responses] == [404, 502, 503]
+    assert [response.json()["detail"]["code"] for response in responses] == [
+        "FACT_BINDING_HANDOFF_V3_NOT_FOUND",
+        "FACT_BINDING_HANDOFF_V3_INVALID",
+        "FACT_BINDING_HANDOFF_V3_REPOSITORY_UNAVAILABLE",
+    ]
+    assert "mongo-secret.example" not in " ".join(response.text for response in responses)
+
+
+def test_v3_handoff_read_intake_is_unavailable_when_database_is_disabled() -> None:
+    app = create_app(Settings(_env_file=None, environment="test"))
+    rule_version = valid_batch_document()["rule_version"]
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/v1/fact-binding-handoffs/v3",
+            params={"ruleVersion": rule_version},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == ("FACT_BINDING_HANDOFF_V3_REPOSITORY_UNAVAILABLE")
 
 
 def test_v2_metadata_resolution_api_is_pure_and_never_calls_provider_or_repository() -> None:

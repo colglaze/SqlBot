@@ -18,6 +18,7 @@ def build_database_resources(settings: Settings) -> DatabaseResources:
             initializer=store,
             rule_repository=store,
             fact_binding_repository=store,
+            fact_binding_batch_repository_v3=store,
             candidate_store=candidate_store,
         )
     if candidate_store is not None:
@@ -25,6 +26,7 @@ def build_database_resources(settings: Settings) -> DatabaseResources:
             initializer=DisabledDatabaseInitializer(),
             rule_repository=None,
             fact_binding_repository=None,
+            fact_binding_batch_repository_v3=None,
             candidate_store=candidate_store,
         )
     return DatabaseResources(

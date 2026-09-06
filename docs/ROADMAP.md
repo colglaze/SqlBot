@@ -145,8 +145,10 @@
 - 真实 handoff intake 与 Phase 2G 重算为 `metadataResolved`；
 - 单事实在线候选生成（用户当次明确授权）、insert-only 候选持久化与 Phase 4 静态 `passed`；
 - 形成不含业务结果值和秘密的端到端证据包，公开 PROG 只保存脱敏哈希、数量与状态；
-- 关键前置：Agent 1 侧已批准 V3（`FactBindingRequest 3.0.0`）路径；若跨仓库确认维持，SqlBot
-  intake 升级是独立需求。交接契约版本决策未登记前，本阶段保持阻断。
+- 关键前置：Agent 1 侧已批准 V3（`FactBindingRequest 3.0.0`）路径；SqlBot intake 升级按
+  REQ-20260906-03 / BIZ-20260906-02 / DEV-20260906-03 完成 V3 批次只读 intake 的**离线实现**
+  （冻结 Schema 副本、独立 consumer、batch 门禁与只读 API，全部合成脱敏测试通过）。上游 V3
+  契约文件提交、MongoDB Schema v5 真实落库与真实读取授权完成前，真实数据验证与本阶段保持阻断。
 
 ## Phase 5：受限 SQL Server 验证
 

@@ -37,6 +37,12 @@ class Settings(BaseSettings):
         min_length=1,
         max_length=128,
     )
+    # Upstream Schema v5 stores one atomic V3 handoff batch per rule version.
+    mongodb_fact_binding_batch_collection: str = Field(
+        default="fact_binding_handoff_batches_v3",
+        min_length=1,
+        max_length=128,
+    )
     mongodb_rule_collection: str = Field(default="rule_versions", min_length=1, max_length=128)
     mongodb_read_only: bool = True
     mongodb_tls: bool = False
