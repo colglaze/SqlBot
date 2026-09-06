@@ -426,3 +426,31 @@ integration、在线 provider 和 SQL Server 验证拆成不同的显式任务�
 
 实施各里程碑时同步更新：本 REQ/BIZ/DEV 状态、README、docs/README 索引、ROADMAP 阶段状态、
 当日 PROG（脱敏证据）。任何与本文档的偏离必须先更新文档再实现。
+
+## 15. 后续审计修订（2026-09-06，Phase 4R Milestone 0 基线审计）
+
+以下修订不改动上文原始正文，只登记同日基线审计的结论；历史小节按原样保留。
+
+1. **第 3 节模块复用表是 V2 专用链。** 审计确认 `FactBindingRequestV3` 无法进入表中任何
+   模块（`ResolveMetadataRequestV2.binding_request` 固定 `FactBindingRequestV2`，候选/
+   静态/存储/Phase 5A 契约全部绑定 V2，且 V3→V2 转换被禁止）。V3 请求的下游链由
+   [DEV-20260906-04](DEV-20260906-04-v3-downstream-pipeline-alignment.md) 以独立契约链冻结；
+   本文档第 3 节的“复用”约束不授权把 V3 载荷送入任何 V2 模块。
+2. **“V3 intake 已完成”从充分条件降级为必要条件。** 本文档与
+   [REQ-20260906-02](../requirements/REQ-20260906-02-real-upstream-handoff-evidence-loop.md)
+   原文把 V3 intake 视为真实闭环的既成前置；审计将其登记为可复现设计缺口
+   （[BUG-20260906-01](../bugs/BUG-20260906-01-v3-phase4r-downstream-contract-gap.md)）。
+   在 [REQ-20260906-04](../requirements/REQ-20260906-04-v3-downstream-pipeline-alignment.md)
+   的 V3 下游链 M1–M6 完成前，不得实现第 4 节编排服务，也不得生成真实候选。
+3. **里程碑顺序修订。** 原 Milestone 0 的基线审计子任务已执行（结论登记于当日 PROG 与
+   DEV-20260906-04 第 12/13 节），但 **Milestone 0 整体未收口**：规划文档批准并提交、
+   RuleAgent V3 契约 commit 与 SHA-256 复核完成前保持 `in_progress`（blocked on upstream
+   anchor），Milestone 1 不得开始（两级口径详见 DEV-20260906-04 第 12 节 M0）。原
+   Milestone 1–8 之前插入 V3 下游链 M1–M6（attestation/授权上下文/快照 → Phase 2G V3 →
+   V3 候选生成 → V3 静态门禁 → V3 候选存储 → V3 编排与证据包）。
+   原 Milestone 1 的“intake 校验”按上游落库契约版本对应 `intake_fact_binding_handoffs_v3`；
+   原 Milestone 3–6 的解析/生成/存储/门禁对象相应切换为 V3 契约（其既有 DoD 语义不变）。
+   历史里程碑正文不改写。
+4. **Milestone 0 基线刷新**：SqlBot 离线基线现为 `424 passed`（`b3e3d35`，含 V3 intake
+   33 项；本文档第 6/11 节中的 386/391 为当时事实，不改写）；RuleAgent 只读基线漂移与上游
+   commit 锚点缺失见 DEV-20260906-04 第 13 节。

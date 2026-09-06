@@ -150,6 +150,21 @@
   （冻结 Schema 副本、独立 consumer、batch 门禁与只读 API，全部合成脱敏测试通过）。上游 V3
   契约文件提交、MongoDB Schema v5 真实落库与真实读取授权完成前，真实数据验证与本阶段保持阻断。
 
+2026-09-06 基线审计修订（不改写上文）：
+
+- V3 intake 离线实现（`b3e3d35`）只解决读取与契约门禁；`FactBindingRequestV3` 尚无法进入
+  Phase 2G/候选生成/静态门禁/候选存储（现有链路全部绑定 V2 契约，V3→V2 转换被禁止），
+  已登记为可复现设计缺口
+  [BUG-20260906-01](bugs/BUG-20260906-01-v3-phase4r-downstream-contract-gap.md)；
+- V3 下游管线对齐已立项（REQ-20260906-04 / BIZ-20260906-03 / DEV-20260906-04，均
+  `proposed`）：独立 V3 契约链（V3 授权上下文/快照 → Phase 2G V3 → V3 候选生成 → V3
+  静态门禁 → V3 候选存储 → V3 编排与证据包，里程碑 M1–M6）插入在本阶段原 Milestone 1–8
+  之前；
+- 在该下游链完成前，不实现 Phase 4R 编排服务，不生成真实候选；上游 V3 契约文件仍未提交
+  （无 commit 锚点，SHA-256 复核与冻结值一致），仍是本阶段外部阻断项。Phase 4R Milestone 0
+  按两级口径登记：审计子任务已完成，整体未收口（`in_progress`，blocked on upstream
+  anchor），Milestone 1 不得开始。
+
 ## Phase 5：受限 SQL Server 验证
 
 状态：**5A 已完成（离线）；5B/5C 待实施（REQ-20260905-01 / BIZ-20260905-01 / DEV-20260905-01）**

@@ -60,6 +60,10 @@ ReleaseSQLBot 是双 Agent 方案中的 Agent 2：消费 RuleReader（Agent 1）
   provider 调用次数为零。
 
 V2 的 `readyForMetadataResolution` 只表示可以开始受治理的元数据解析，不表示可进入生成阶段。
+V3 的 `readyForMetadataResolution` 目前只表示批次通过了只读 intake 门禁；V3 下游（Phase 2G
+元数据解析、候选生成、静态门禁与候选存储）尚未实现，且禁止把 V3 转换、裁剪或降级为 V2 契约
+（见 [REQ-20260906-04](docs/requirements/REQ-20260906-04-v3-downstream-pipeline-alignment.md)
+与 [BUG-20260906-01](docs/bugs/BUG-20260906-01-v3-phase4r-downstream-contract-gap.md)）。
 旧 `ready` 仅属于 V1 legacy API；候选生成成功不表示已通过 AST。即使 Phase 4 静态报告为 `passed`，
 也不表示 SQL 已通过受限环境验证、人工审核或可以执行。
 
@@ -259,6 +263,10 @@ uv run pytest
 ## 文档导航
 
 - [文档总索引](docs/README.md)
+- [FactBindingRequest 3.0.0 下游管线对齐需求](docs/requirements/REQ-20260906-04-v3-downstream-pipeline-alignment.md)
+- [V3 下游管线权威边界与复用决策](docs/decisions/BIZ-20260906-03-v3-downstream-authority-boundary.md)
+- [FactBindingRequest 3.0.0 下游管线对齐设计与实施计划](docs/architecture/DEV-20260906-04-v3-downstream-pipeline-alignment.md)
+- [V3 intake 与 Phase 4R 下游契约缺口](docs/bugs/BUG-20260906-01-v3-phase4r-downstream-contract-gap.md)
 - [FactBindingRequest 3.0.0 intake 升级需求](docs/requirements/REQ-20260906-03-fact-binding-v3-intake.md)
 - [FactBindingRequest 3.0.0 intake 权威边界](docs/decisions/BIZ-20260906-02-fact-binding-v3-authority-boundary.md)
 - [FactBindingRequest 3.0.0 intake 设计与实施计划](docs/architecture/DEV-20260906-03-fact-binding-v3-intake.md)

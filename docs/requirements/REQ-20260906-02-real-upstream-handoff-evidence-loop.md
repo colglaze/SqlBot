@@ -305,3 +305,44 @@ Agent 1 必须提供的最小真实输入：
    第 6.1 节；进入真实存储验证前必须补齐）；
 6. 在线 provider 调用未获得用户当次明确授权；
 7. 私有参考资料被用于构造任何授权输入（直接阻断，不允许继续）。
+
+## 12. 后续审计修订（2026-09-06，Phase 4R Milestone 0 基线审计）
+
+以下修订不改动上文原始正文，只登记同日跨仓库基线审计的新发现；历史小节按原样保留。
+
+1. **V3 intake 已离线完成，但不构成本需求下游链路的充分条件。** SqlBot 已按
+   [REQ-20260906-03](REQ-20260906-03-fact-binding-v3-intake.md) 完成 V3 批次只读 intake 的
+   离线实现（提交 `b3e3d35`）；但审计确认 `FactBindingRequestV3` 在 intake 出口后没有任何
+   可进入的下游步骤：`ResolveMetadataRequestV2` 只接受 `FactBindingRequestV2`，V2 candidate/
+   静态报告/Phase 5A/候选存储全部绑定 V2 契约，且 V3→V2 转换被禁止。第 2.3、5.1 节所述
+   “intake 升级为 3.0.0 的实现”只是必要条件；完整可执行前置见
+   [BUG-20260906-01](../bugs/BUG-20260906-01-v3-phase4r-downstream-contract-gap.md) 与
+   [REQ-20260906-04](REQ-20260906-04-v3-downstream-pipeline-alignment.md)（V3 下游契约链
+   M1–M6）。第 11.2 条阻断项已由 REQ-20260906-03 承载，其关闭以该需求实施验收与本修订
+   登记的下游链共同为准。
+2. **第 7.1/8.9 节的 V2 函数与 coverage 语义不适用于 V3 请求。** `analyze_binding_gaps_v2`
+   与 `resolve_metadata_v2` 仍锚定 V2 链；V3 请求的解析、coverage（须含
+   stage/ruleCode/outcome 维度）与存储契约由
+   [DEV-20260906-04](../architecture/DEV-20260906-04-v3-downstream-pipeline-alignment.md)
+   冻结，禁止裁剪 V3 usage 语义进入 V2 契约。
+3. **Milestone 0 基线刷新（2026-09-06 复核）**：SqlBot main 工作树干净、领先 origin/main
+   10 提交、HEAD `b3e3d35`、离线基线 `424 passed`（合成脱敏，不构成真实数据验证）；
+   RuleAgent（只读）HEAD `65a9684`、V3 Schema 仍为未跟踪工作区文件、原始字节 SHA-256
+   复核与冻结值 `2c5e4603…` 一致，即“尚无上游 commit 锚点”。**观察口径（二轮审查冻结）**：
+   RuleAgent 工作区在活跃并行变化中，其测试数量等只是带时间戳的观察快照，不是长期当前
+   事实，不作为固定跨仓库门禁；2026-09-06 当日快照序列为 173/5（其 PROG 记录）→ 174/6
+   （日间，当时另有 2 个 ruff 错误与 1 个待重排版文件，后被上游工作区自行消除）→ 189/6
+   与 201/6（19:55 与 21:02 两次只读执行，ruff/format/mypy/pip check 全部通过，git 条目
+   94→99）。M0 的稳定门禁只有：工作树经独立审查、V3 契约与实现已提交、取得真实 commit
+   SHA、Schema SHA-256 在该提交树上重新核对、必要检查在该提交树上通过。快照明细见
+   [DEV-20260906-04](../architecture/DEV-20260906-04-v3-downstream-pipeline-alignment.md)
+   第 13 节。
+4. **里程碑顺序修订**：本需求第 11 节 Milestone 0 的契约版本决策已落地为 REQ-20260906-03
+   系列；原 Milestone 1–8 的真实闭环推进现在以
+   [REQ-20260906-04](REQ-20260906-04-v3-downstream-pipeline-alignment.md) 的 V3 下游链
+   M1–M6 完成为前置（顺序修订详见 DEV-20260906-02 后续审计修订章节）。在该链完成前，
+   不得实现本需求第 4 节状态机的编排服务，也不得生成真实候选。Milestone 0 按两级口径
+   登记：其审计子任务（基线审计、设计缺口复现、规划文档草稿）已完成，但**整体未收口**
+   ——规划文档批准并提交、RuleAgent V3 契约 commit 与 SHA-256 复核完成前保持
+   `in_progress`（blocked on upstream anchor），Milestone 1 不得开始（详见 DEV-20260906-04
+   第 12 节 M0）。
