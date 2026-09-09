@@ -136,19 +136,80 @@ def test_v3_consumer_cannot_accept_v2_payload() -> None:
 def test_upstream_schema_source_record_is_frozen_and_machine_readable() -> None:
     source = json.loads(SOURCE_PATH.read_text(encoding="utf-8"))
 
-    assert source == {
-        "schemaId": "urn:rulereader:fact-binding-request:3.0.0",
-        "contractVersion": "3.0.0",
-        "sourceRepository": "RuleReader",
-        "sourcePath": "contracts/fact-binding-request-3.0.0.schema.json",
-        "sha256": "2c5e4603cda243a84f5ec1c47ee65d3e377598fed86b1ddab5a167a2c342c566",
-        "observedAt": "2026-09-06",
-        "consumerFixture": "tests/fixtures/fact-binding-request-3.0.0.synthetic-ready.json",
-        "fixtureDataClassification": "synthetic-redacted",
-        "sourceHeadAtObservation": "65a96846b3ae991b42a8159dbbee43a9bbe15846",
-        "upstreamCommittedAtObservation": False,
+    # Precise top-level key set: no more, no less.
+    assert set(source.keys()) == {
+        "schemaId",
+        "contractVersion",
+        "sourceRepository",
+        "sourcePath",
+        "sha256",
+        "sha256Note",
+        "observedAt",
+        "consumerFixture",
+        "fixtureDataClassification",
+        "sourceHeadAtObservation",
+        "upstreamCommittedAtObservation",
+        "verifiedCommitTree",
+        "runtime",
     }
+
+    # Historical observation fields preserved unchanged.
+    assert source["schemaId"] == "urn:rulereader:fact-binding-request:3.0.0"
+    assert source["contractVersion"] == "3.0.0"
+    assert source["sourceRepository"] == "RuleReader"
+    assert source["sourcePath"] == "contracts/fact-binding-request-3.0.0.schema.json"
+    assert source["observedAt"] == "2026-09-06"
+    assert source["consumerFixture"] == (
+        "tests/fixtures/fact-binding-request-3.0.0.synthetic-ready.json"
+    )
+    assert source["fixtureDataClassification"] == "synthetic-redacted"
+    assert source["sourceHeadAtObservation"] == ("65a96846b3ae991b42a8159dbbee43a9bbe15846")
+    assert source["upstreamCommittedAtObservation"] is False
+
+    # Top-level sha256 is the historical/runtime-normalized hash.
     assert source["sha256"] == FACT_BINDING_SCHEMA_SHA256_V3
+    assert source["sha256Note"] == (
+        "Historical observation hash (2026-09-06). Matches runtime CRLF-normalized "
+        "hash and FACT_BINDING_SCHEMA_SHA256_V3; NOT the upstream commit-tree raw bytes hash."
+    )
+
+    # Verified commit-tree evidence (2026-09-09 read-only verification).
+    verified = source["verifiedCommitTree"]
+    assert set(verified.keys()) == {
+        "verifiedAt",
+        "commit",
+        "repositoryHeadAtVerification",
+        "sourcePath",
+        "byteLength",
+        "lineEnding",
+        "sha256",
+        "jsonStructureIdenticalToPackagedSchema",
+    }
+    assert verified["verifiedAt"] == "2026-09-09"
+    assert verified["commit"] == "bad6fd349a6ecbff190b9bd0ac1bc34a48588325"
+    assert verified["repositoryHeadAtVerification"] == ("01ddae0979e8adb4fcb41e68e3f33deb850b1443")
+    assert verified["sourcePath"] == "contracts/fact-binding-request-3.0.0.schema.json"
+    assert verified["byteLength"] == 29870
+    assert verified["lineEnding"] == "LF"
+    assert verified["sha256"] == (
+        "0e39c7acd96b22fc91c3a6a228561d3db9b6368db9f062c95f970b19ec164903"
+    )
+    assert verified["jsonStructureIdenticalToPackagedSchema"] is True
+
+    # Runtime normalization evidence.
+    runtime = source["runtime"]
+    assert set(runtime.keys()) == {
+        "normalization",
+        "normalizedLineEnding",
+        "sha256",
+        "matchesFactBindingSchemaSha256V3",
+    }
+    assert runtime["normalization"] == (
+        'CRLF-normalized before hashing (raw.replace(b"\\r\\n", b"\\n").replace(b"\\n", b"\\r\\n"))'
+    )
+    assert runtime["normalizedLineEnding"] == "CRLF"
+    assert runtime["sha256"] == FACT_BINDING_SCHEMA_SHA256_V3
+    assert runtime["matchesFactBindingSchemaSha256V3"] is True
 
 
 def test_synthetic_v3_fixture_passes_the_frozen_upstream_json_schema() -> None:

@@ -4,9 +4,26 @@
   "sourceRepository": "RuleReader",
   "sourcePath": "contracts/fact-binding-request-3.0.0.schema.json",
   "sha256": "2c5e4603cda243a84f5ec1c47ee65d3e377598fed86b1ddab5a167a2c342c566",
+  "sha256Note": "Historical observation hash (2026-09-06). Matches runtime CRLF-normalized hash and FACT_BINDING_SCHEMA_SHA256_V3; NOT the upstream commit-tree raw bytes hash.",
   "observedAt": "2026-09-06",
   "consumerFixture": "tests/fixtures/fact-binding-request-3.0.0.synthetic-ready.json",
   "fixtureDataClassification": "synthetic-redacted",
   "sourceHeadAtObservation": "65a96846b3ae991b42a8159dbbee43a9bbe15846",
-  "upstreamCommittedAtObservation": false
+  "upstreamCommittedAtObservation": false,
+  "verifiedCommitTree": {
+    "verifiedAt": "2026-09-09",
+    "commit": "bad6fd349a6ecbff190b9bd0ac1bc34a48588325",
+    "repositoryHeadAtVerification": "01ddae0979e8adb4fcb41e68e3f33deb850b1443",
+    "sourcePath": "contracts/fact-binding-request-3.0.0.schema.json",
+    "byteLength": 29870,
+    "lineEnding": "LF",
+    "sha256": "0e39c7acd96b22fc91c3a6a228561d3db9b6368db9f062c95f970b19ec164903",
+    "jsonStructureIdenticalToPackagedSchema": true
+  },
+  "runtime": {
+    "normalization": "CRLF-normalized before hashing (raw.replace(b\"\\r\\n\", b\"\\n\").replace(b\"\\n\", b\"\\r\\n\"))",
+    "normalizedLineEnding": "CRLF",
+    "sha256": "2c5e4603cda243a84f5ec1c47ee65d3e377598fed86b1ddab5a167a2c342c566",
+    "matchesFactBindingSchemaSha256V3": true
+  }
 }
