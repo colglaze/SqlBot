@@ -158,13 +158,17 @@
   已登记为可复现设计缺口
   [BUG-20260906-01](bugs/BUG-20260906-01-v3-phase4r-downstream-contract-gap.md)；
 - V3 下游管线对齐已立项（REQ-20260906-04 / BIZ-20260906-03 / DEV-20260906-04，均
-  `proposed`）：独立 V3 契约链（V3 授权上下文/快照 → Phase 2G V3 → V3 候选生成 → V3
-  静态门禁 → V3 候选存储 → V3 编排与证据包，里程碑 M1–M6）插入在本阶段原 Milestone 1–8
-  之前；
+  `approved`，2026-09-09 用户批准）：独立 V3 契约链（V3 授权上下文/快照 → Phase 2G V3 →
+  V3 候选生成 → V3 静态门禁 → V3 候选存储 → V3 编排与证据包，里程碑 M1–M6）插入在本阶段
+  原 Milestone 1–8 之前；M0 已收口（`completed`），M1 已启动（`in_progress`）；
 - 在该下游链完成前，不实现 Phase 4R 编排服务，不生成真实候选。2026-09-09 已完成上游 commit
-  与三类哈希来源登记，原“无 commit 锚点”阻塞解除；固定私有资料中的现有事实也已由用户确认，
-  后续不再重复索取。当前剩余工作是上游业务表达 vNext、事实到批准 context/snapshot/grants 的
-  工程转换，以及 V3 M1–M6 实现。Milestone 0 仍因规划文档未批准并提交而保持 `in_progress`。
+  与三类哈希来源登记（提交 `e3b00b2`），原”无 commit 锚点”阻塞解除；M0 规划批次已进入提交
+  `61a377f`；固定私有资料中的现有事实也已由用户确认，后续不再重复索取。当前剩余工作按职责
+  分工：`businessRuleReview` 负责上游业务表达及新版本 catalog/rules/handoff；`metadataReview`
+  负责已确认物理事实到版本化 context/snapshot/grants 的转换与批准；SqlBot M1 只负责契约模型
+  和批准内容闭包纯计算校验。M0 已因规划文档批准并落档而收口为 `completed`；M1 已启动（`in_progress`），
+  首个子任务及审核修复已完成，九组批准校验子任务已完成（102 项定向契约测试、526 项全量测试）；
+  M1 仍为 `in_progress`。
 
 ## Phase 5：受限 SQL Server 验证
 

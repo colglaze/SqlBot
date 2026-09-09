@@ -1,8 +1,8 @@
 # DEV-20260906-04：FactBindingRequest 3.0.0 下游管线对齐设计与实施计划
 
-- 状态：`proposed`（2026-09-06 人工审查意见修订版：handoff 内容闭包与仓储真实性分层、usage
-  六元组、契约
-  版本表、runtime/implementation 双顺序、context 生命周期与 M0 状态口径已按审查结论修订）
+- 状态：`approved`（2026-09-09 用户明确批准五项设计；2026-09-06 人工审查意见修订版：handoff
+  内容闭包与仓储真实性分层、usage 六元组、契约版本表、runtime/implementation 双顺序、context
+  生命周期与 M0 状态口径已按审查结论修订。本次批准只表示设计已批准，不表示实现已完成）
 - 创建日期：2026-09-06
 - 实现需求：[REQ-20260906-04](../requirements/REQ-20260906-04-v3-downstream-pipeline-alignment.md)
 - 业务决策：[BIZ-20260906-03](../decisions/BIZ-20260906-03-v3-downstream-authority-boundary.md)
@@ -14,8 +14,10 @@
   [DEV-20260906-01](DEV-20260906-01-v2-candidate-persistence.md)
 
 > 本文档只做规划，本轮任务不实现任何 V3 下游代码。文中全部契约、模块与测试均为后续实施
-> 对象；M0 未收口且本组文档未批准前，M1 起所有里程碑不得开始实施。上游 commit 与来源登记已
-> 于 2026-09-09 完成，历史观察见第 13 节。
+> 对象；M0 已收口（`completed`）：上游 commit 与来源登记已于 2026-09-09 完成（提交 `e3b00b2`），
+> M0 规划批次已进入提交 `61a377f`，五项设计已由用户批准并落档；M1 已启动（`in_progress`）；
+> 首个项目授权/快照/批准记录契约子任务及其审核修复已完成，后续仍受 M1 剩余范围约束。
+> 历史观察见第 13 节。
 
 ## 1. 设计结论
 
@@ -183,12 +185,12 @@ ProjectBindingContextV3（camelCase、extra=forbid、strict）
 - **M1 范围收缩**：只实现上述契约与纯计算校验（哈希闭包、状态/引用校验、版本比较）；不实现
   MongoDB context 仓储与生命周期事件存储——该存储设计在 M6 编排前按本节方案另立设计确认。
 
-### 3.3 批准记录载体（proposed，待用户批准）
+### 3.3 批准记录载体（设计已批准，实现属于 M1）
 
 metadataReview 是 context/snapshot 批准 owner。SqlBot 是 V3 契约代码、确定性校验和解析的
 实现 owner。候选审核（`reviewStatus=pending`）与元数据批准是两件独立事项，不得混为一体。
 
-proposed 不可变批准记录结构（`schema_version="1.0.0"`）：
+已批准不可变批准记录结构（`schema_version="1.0.0"`，实施时绑定常量）：
 
 ```text
 ApprovalRecordV3（camelCase、extra=forbid、strict、insert-only）
@@ -226,7 +228,8 @@ ApprovalRecordV3（camelCase、extra=forbid、strict、insert-only）
 - 任一引用或哈希不一致时批准记录无效并 fail closed；
 - 撤销、active pointer、supersession 事件和 MongoDB 事务**不属于 M1**，保持 M6 前的独立存储
   设计事项；真实 M6 使用前必须完成设计和实现；
-- **本轮仅设计，不实现存储或事务**；未经用户批准前保持 proposed，不写入代码或测试。
+- **本轮仅设计，不实现存储或事务**；设计已随 M0 审批包批准，真实存储与事务实现仍属 M6 前
+  后续里程碑。
 
 #### `validate_approval_closure_v3` 纯函数（M1 实现，V3 专属）
 
@@ -305,7 +308,7 @@ validate_approval_closure_v3(
 - M2 捕获该异常并转换成 `blocked` 报告；
 - M2 报告只记录 code，不记录异常内部输入。
 
-### 3.6 真实 M3/M6 受信批准来源门禁（proposed，冻结门禁要求，实现属于后续阶段）
+### 3.6 真实 M3/M6 受信批准来源门禁（门禁要求已批准，实现属于后续阶段）
 
 `validate_approval_closure_v3` 成功只证明内容闭包内部一致，不证明批准真实性。
 真实 M3/M6 调用前，受信应用服务**必须**通过受控的只读批准记录端口，按精确 `approvalId`
@@ -792,16 +795,23 @@ BindingResolutionReportV3
 > [DEV-20260906-02](DEV-20260906-02-real-handoff-evidence-loop-orchestration.md) 后续审计
 > 修订章节。
 
-### M0：上游 commit 锚点与跨仓库基线（`in_progress`，来源锚点已解除）
+### M0：上游 commit 锚点与跨仓库基线（`completed`，2026-09-09 用户批准并落档）
 
-**当前状态（2026-09-09）：上游 commit 与三类哈希来源登记已由 T0 完成；M0 仍因本组
-REQ/BIZ/DEV 尚未批准并提交而保持 `in_progress`，M1 不得开始。以下 2026-09-06 快照保留为历史
-审计记录，不再代表当前上游状态。**
+**当前状态（2026-09-09）：M0 已收口。上游 commit 与三类哈希来源登记已由 T0 完成；本组
+REQ/BIZ/DEV 已由用户明确批准并落档；M0 规划批次已进入提交 `61a377f`。M1 已启动
+（`in_progress`），首个契约子任务及审核修复已完成；九组批准校验和 handoff 契约尚未实施。
+以下 2026-09-06 快照保留为历史审计记录，不再代表当前上游状态。**
 
 - 2026-09-09 已完成：上游 V3 契约提交、完整 commit 锚点、提交树原始字节哈希与运行时规范化
   哈希登记；真实生成仍受 10.1 节其余门禁约束。
-- 2026-09-09 仍未完成：本组 REQ/BIZ/DEV 批准并提交。上游业务表达 vNext 是受影响事实进入真实
-  M3/M6 的门禁，不阻止 M1/M2 的离线契约实现。
+- 2026-09-09 已完成：本组 REQ/BIZ/DEV 批准并落档（M0 状态 `completed`）；Git 提交需用户另行
+  明确授权。上游业务表达 vNext 是受影响事实进入真实 M3/M6 的门禁，不阻止 M1/M2 的离线契约实现。
+- 2026-09-09 五项设计已由本次用户指令明确批准：
+  1. DEV §4.3 的 12 项独立契约版本表；
+  2. `ApprovalRecordV3`、九组有序 fail-fast 内容闭包校验，以及真实 M3/M6 的独立受信批准来源门禁；
+  3. V3 下游采用独立契约链，禁止 V3↔V2 转换、包装或降级，V2 行为保持不变；
+  4. `businessRuleReview`、`metadataReview`、`SqlBot` 的职责分工；
+  5. DEV §12 的 M1–M6 实施顺序，以及离线开发与真实调用门禁。
 
 2026-09-06 历史快照（保留用于审计）：
 
@@ -818,9 +828,15 @@ REQ/BIZ/DEV 尚未批准并提交而保持 `in_progress`，M1 不得开始。以
 - 失败语义：任何基线与登记值不符（尤其 Schema SHA-256 变化）→ 停止，另立评审。
 - 测试范围：只读检查命令，无新增测试。
 
-### M1：V3 授权上下文、快照与 handoff 闭包契约
+### M1：V3 授权上下文、快照与 handoff 闭包契约（`in_progress`）
 
 - 前置条件：M0 收口（上游 V3 契约已提交、SHA-256 复核一致）；本 REQ/BIZ/DEV 已批准。
+- **当前状态**：M1 已启动（`in_progress`），首个契约子任务及审核修复已完成：
+  - **已完成**：`project_bindings_v3.py` 契约模型及 `test_project_bindings_v3_contract.py`（76 项定向契约测试通过；全量 500 passed）；
+  - **已完成**：`validate_approval_closure_v3.py` 九组纯计算校验及对应测试（本轮实施）；
+  - **审核修复**：已修复 contextRef 类型错误、授权身份唯一性遗漏、requestIds 元素缺少下界、异常 code 未受约束四项缺陷；
+  - **后续**：`handoff_closure_v3.py` 契约及 `test_handoff_closure_v3_contract.py`；
+  - 全部 M1 DoD 满足后才能将 M1 标记 completed。
 - **M1 允许的五个实现文件固定为：**
   1. `src/release_sql_bot/domain/project_bindings_v3.py`（context + snapshot + grants + approval +
      `ApprovalClosureValidationErrorV3` 异常，定义在同文件）
@@ -982,13 +998,14 @@ context/snapshot/grants；离线 fake provider 实现和测试不以真实 provi
 ④ 上游 Schema v5 migration 与真实 batch 写入仍需单独授权；
 ⑤ 本任务与 M1 前的全部里程碑均不运行真实持久化脚本。
 
-**M0 当前唯一剩余门禁：REQ/BIZ/DEV-20260906-04 完成人工批准并纳入 Git 提交。**
+**M0 已收口（2026-09-09）：REQ/BIZ/DEV-20260906-04 已由用户明确批准并落档，M0 状态为
+`completed`；Git 提交需用户另行明确授权。M1 已启动（`in_progress`）；首个项目授权/快照/批准记录契约子任务及其审核修复已完成，后续仍受 M1 剩余范围约束。**
 
 ## 14. 开放问题
 
 | # | 问题 | Owner | 阻断 |
 | --- | --- | --- | --- |
-| 1 | ApprovalRecordV3 结构（§3.3 proposed）与 M1 创建/版本语义已形成 proposed 方案；当前只等待用户随整个 M0 审批包批准 | metadataReview + sqlBot | M1（随 M0 审批包） |
+| 1 | ApprovalRecordV3 结构（§3.3）与 M1 创建/版本语义已随五项设计获批；**设计已批准，原 M1 设计阻塞解除**；真实存储、生命周期和受信批准来源核验仍属后续里程碑 | metadataReview + sqlBot | M1（设计已批准，实现未完成） |
 | 2 | context 生命周期事件记录/active pointer 的存储设计与审计载体（3.2 节方案的实施确认；M1 只做契约与纯计算校验，存储设计在 M6 编排前冻结） | sqlBot + metadataReview | M6 |
 | 3 | V3 Prompt 版本命名与 `exactOutputDeclarations` 等价结构设计 | sqlBot | M3 |
 | 4 | parser-neutral 检查是提取共享模块还是 V3 内参数化副本（两者都合规，实施时二选一并登记） | sqlBot | M4 |
@@ -997,8 +1014,8 @@ context/snapshot/grants；离线 fake provider 实现和测试不以真实 provi
 
 > 已决事项登记：`usage_traceability_sha256` 的参与字段、排序键与重复身份规则已于 5.4 节
 > 冻结（原开放问题”M2 前冻结摘要规范”关闭）；上游提交与来源哈希复核已由 2026-09-09 T0
-> 完成（原开放问题 7 关闭）；ApprovalRecordV3 结构与 M1 创建/版本语义已于 §3.3 形成
-> proposed 方案，撤销/active pointer/supersession/MongoDB 事务仍由 M6 开放问题 2 承载。
+> 完成（原开放问题 7 关闭）；ApprovalRecordV3 结构与 M1 创建/版本语义已于 §3.3 随五项设计
+> 获批，撤销/active pointer/supersession/MongoDB 事务仍由 M6 开放问题 2 承载。
 
 ## 15. 文档影响
 

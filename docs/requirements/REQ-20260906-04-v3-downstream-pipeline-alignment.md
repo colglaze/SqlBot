@@ -1,9 +1,8 @@
 # REQ-20260906-04：FactBindingRequest 3.0.0 下游管线对齐（Phase 2G/3/4/存储）
 
-- 状态：`proposed`（2026-09-06 人工审查意见修订版：handoff 内容闭包与仓储真实性分层、usage
-  六元组、
-  契约版本表、runtime/implementation 双顺序、context 生命周期与 M0 状态口径已按审查结论
-  修订）
+- 状态：`approved`（2026-09-09 用户明确批准五项设计；2026-09-06 人工审查意见修订版：handoff
+  内容闭包与仓储真实性分层、usage 六元组、契约版本表、runtime/implementation 双顺序、context
+  生命周期与 M0 状态口径已按审查结论修订。本次批准只表示设计已批准，不表示全部需求或实现已完成）
 - 创建日期：2026-09-06
 - 来源：Phase 4R Milestone 0 跨仓库基线审计发现“V3 intake 完成 ≠ 下游链路就绪”的可复现契约
   断点（[BUG-20260906-01](../bugs/BUG-20260906-01-v3-phase4r-downstream-contract-gap.md)），
@@ -277,18 +276,22 @@ Phase 2G → 3 → 4 → 存储，并显式划定 Phase 5 对齐的边界。
 7. 运行顺序验收：编排路径保持 `candidateGenerated → candidateStored → staticPassed`，有
    测试证明静态 blocked 候选的存储审计记录完整且未被修改；实施顺序（M4 先于 M5 交付）
    不构成对运行顺序的更改；
-8. M0 状态验收：上游 V3 契约 commit 与来源哈希登记已于 2026-09-09 完成；本组规划文档批准并
-   提交前，M0 整体仍保持 `in_progress`，M1 不得开始。来源登记完成不等于业务表达 vNext、
-   context/snapshot 批准或真实生成完成。
+8. M0 状态验收：上游 V3 契约 commit 与来源哈希登记已于 2026-09-09 完成；本组 REQ/BIZ/DEV
+   已于 2026-09-09 由用户明确批准并落档，M0 整体状态为 `completed`；M1 仍未开工，需用户
+   明确授权后方可开始。来源登记完成不等于业务表达 vNext、context/snapshot 批准或真实生成完成。
 
 ## 8. 阻断项
 
-1. 上游提交与来源登记阻塞已由 2026-09-09 T0 解除；M0 仍需本组 REQ/BIZ/DEV 批准并提交。
+1. ~~上游提交与来源登记阻塞已由 2026-09-09 T0 解除~~（**已完成**：commit `bad6fd3…`，
+   提交树 `0e39c7ac…`，运行时 `2c5e4603…`，来源清单已更新）。~~M0 仍需本组 REQ/BIZ/DEV
+   批准并提交~~（**已由 2026-09-09 用户指令批准并落档，M0 状态见 DEV §12；Git 提交需用户
+   另行明确授权**）。
 2. 当前已归档 V3 交付存在已登记的业务表达缺口；受影响事实进入真实 M3/M6 前必须由
    `businessRuleReview` 基于固定私有资料生成新版本 catalog、规则和 handoff，禁止覆盖旧版本。
-3. `metadataReview` 的批准 owner 已明确；批准记录载体、维护流程及与 SqlBot V3 契约的交接方式
-   尚需在 M1 前冻结。已有事实无需用户重填，但未经批准的 context/snapshot/grant 仍不能进入
-   真实生成。
+3. `metadataReview` 的批准 owner 已明确；M1 所需的批准记录结构（`ApprovalRecordV3`）、创建/版本
+   语义及与 SqlBot V3 契约的交接方式已随五项设计获批。真实存储、生命周期和受信批准来源核验
+   仍按 DEV 后续里程碑执行，不属于 M1 范围。已有事实无需用户重填，但未经批准的
+   context/snapshot/grant 仍不能进入真实生成。
 4. 私有资料不能直接成为授权输入：必须经过固定来源校验、确定性转换和 metadataReview 批准；
    原始资料不得直接进入 Prompt，且不得据此扩大表列或 join 范围。
 5. 真实调用还要求同一次应用调用中的 MongoDB 仓储背书、精确 `ruleVersion + requestId`、
