@@ -13,8 +13,9 @@
   [DEV-20260827-01](DEV-20260827-01-sql-ast-safety-gate.md)、
   [DEV-20260906-01](DEV-20260906-01-v2-candidate-persistence.md)
 
-> 本文档只做规划，本轮任务不实现任何代码。文中全部契约、模块与测试均为后续实施对象；上游
-> commit 锚点未取得前（第 13 节），M1 起所有里程碑不得开始实施。
+> 本文档只做规划，本轮任务不实现任何 V3 下游代码。文中全部契约、模块与测试均为后续实施
+> 对象；M0 未收口且本组文档未批准前，M1 起所有里程碑不得开始实施。上游 commit 与来源登记已
+> 于 2026-09-09 完成，历史观察见第 13 节。
 
 ## 1. 设计结论
 
@@ -81,6 +82,8 @@ src/release_sql_bot/application/ports/candidate_store_v3.py
   CandidateTemplateStoreV3 端口（独立协议）
 src/release_sql_bot/infrastructure/database/mongodb_candidates_v3.py
   V3 insert-only 适配器（独立集合）
+tests/contract/test_project_bindings_v3_contract.py
+tests/contract/test_handoff_closure_v3_contract.py
 tests/contract/test_sql_candidates_v3_contract.py
 tests/unit/test_metadata_resolution_v3.py
 tests/unit/test_candidates_v3.py
@@ -88,6 +91,12 @@ tests/unit/test_sql_validation_v3.py
 tests/unit/test_candidate_store_v3.py
 tests/fixtures/*.v3.synthetic.json（合成脱敏）
 ```
+
+- `project_bindings_v3.py` 包含 `ProjectBindingContextV3`、`GovernedMetadataSnapshotV3`、
+  `ApprovalRecordV3` 及 context/snapshot/approval 嵌套引用与 grant 模型；
+- `handoff_closure_v3.py` 包含 `HandoffClosureV3` 与 `RepositoryVerifiedHandoffV3`；
+- M1 定向测试要求 `test_project_bindings_v3_contract.py` 与
+  `test_handoff_closure_v3_contract.py` 全部通过。
 
 修改（仅装配点，无行为改动）：
 
@@ -105,6 +114,30 @@ tests/integration/test_api.py             V3 路由用例（随 M6 任务实现�
 契约模型；共享算法（canonical 哈希等）提取到中立模块或直接引用
 `application/canonical.py` 这类无契约语义的底层函数。
 
+### 2.1 已确认事实到机器输入的转换计划（2026-09-09 用户指令）
+
+固定 `RuleDataReferences` bundle 中实际存在的 Excel 与其他资料内容已经用户确认。实现不得因
+“待确认”“pending”等滞后状态字段再次向用户索取同一事实。规则结构和执行顺序以用户指定的
+主来源为优先依据；工作簿实际内容用于字段、对象、枚举和关系证据；其他固定来源用于交叉核对。
+所有引用必须固定私有 commit、bundle digest 与来源文件 SHA-256，公开仓库只保留脱敏索引和
+摘要。
+
+转换流程：
+
+1. 读取并校验固定 bundle，形成私有事实覆盖矩阵；忽略状态标签，只按实际内容判断是否存在。
+2. `businessRuleReview` 对规则结构、事实、筛选、聚合、时间和组合语义做确定性对齐；已登记的
+   上游表达缺口以新 catalog digest、规则版本和 handoff 修订，旧载荷保持不可变。
+3. `metadataReview` 将已确认物理事实转成 `ProjectBindingContextV3`、
+   `GovernedMetadataSnapshotV3` 与精确 grants，并产生版本化批准记录。原始工作簿不能直接充当
+   snapshot 或 grant。
+4. SqlBot 在 M1/M2 只消费上述机器载荷并重算全部引用闭包；载荷缺字段时 fail closed，不从
+   Prompt、历史候选或数据库运行结果补全。
+5. 只有完整遍历固定资料后仍不存在的信息才登记为缺失。资料内部存在不同表述时，
+   `businessRuleReview` 按主来源优先级形成版本化证据裁决；模型不得猜测，也不要求用户重复提供
+   已有内容。局部未裁决只阻断受影响事实，不阻断无依赖的离线契约开发。
+
+因此后续通常不再需要用户提供业务事实；剩余工作是工程转换、批准载体设计和运行授权。
+
 ## 3. V3 项目授权上下文（M1 冻结）
 
 ### 3.1 结论：新增 `ProjectBindingContextV3`
@@ -117,7 +150,7 @@ tests/integration/test_api.py             V3 路由用例（随 M6 任务实现�
 
 ```text
 ProjectBindingContextV3（camelCase、extra=forbid、strict）
-  schema_version = "3.0.0"
+  schema_version = "1.0.0"
   context_id / context_version          稳定 ID + 整数版本
   status: draft | approved | superseded
   project_ref:                          project_id / project_version（形状同 V2）
@@ -150,6 +183,154 @@ ProjectBindingContextV3（camelCase、extra=forbid、strict）
 - **M1 范围收缩**：只实现上述契约与纯计算校验（哈希闭包、状态/引用校验、版本比较）；不实现
   MongoDB context 仓储与生命周期事件存储——该存储设计在 M6 编排前按本节方案另立设计确认。
 
+### 3.3 批准记录载体（proposed，待用户批准）
+
+metadataReview 是 context/snapshot 批准 owner。SqlBot 是 V3 契约代码、确定性校验和解析的
+实现 owner。候选审核（`reviewStatus=pending`）与元数据批准是两件独立事项，不得混为一体。
+
+proposed 不可变批准记录结构（`schema_version="1.0.0"`）：
+
+```text
+ApprovalRecordV3（camelCase、extra=forbid、strict、insert-only）
+  schema_version:              Literal["1.0.0"]
+  approval_id:                不透明稳定 ID（可预先分配；不从载荷内容派生；
+                              ^[A-Za-z0-9][A-Za-z0-9._:-]*$；max_length=200；
+                              不表达内容完整性、批准范围或授权结果）
+  context_ref:                精确绑定已批准的上下文载荷
+    context_id:               stable ID（^[A-Za-z0-9][A-Za-z0-9._:-]*$；max_length=200）
+    context_version:          整数版本（>=1）
+    sha256:                   必须 == ProjectBindingContextV3.contentSha256
+  snapshot_ref:               精确绑定已批准的快照载荷
+    snapshot_id:              stable ID（^[A-Za-z0-9][A-Za-z0-9._:-]*$；max_length=200）
+    snapshot_version:          整数版本（>=1）
+    sha256:                   必须 == GovernedMetadataSnapshotV3.contentSha256
+  policy_version:             稳定 ID（^[A-Za-z0-9][A-Za-z0-9._:-]*$；max_length=160）
+  actor_ref (wire actorRef):  批准主体（stable ID；max_length=200）
+  approved_at:                批准时间（带时区 ISO-8601）
+  content_sha256:             记录自身的 canonical SHA-256（排除自身哈希字段后计算；
+                              64 位小写十六进制）
+```
+
+- `approval_id` 是不透明稳定 ID，**不是 SHA-256**；它仅满足稳定 ID 契约，不从载荷内容派生，
+  不表达内容完整性、批准范围或授权结果；内容完整性只由 `contextRef.sha256`、
+  `snapshotRef.sha256` 和 `ApprovalRecordV3.contentSha256` 表达；
+- `context_ref.sha256` 必须等于 `ProjectBindingContextV3.contentSha256`；`snapshot_ref.sha256`
+  必须等于 `GovernedMetadataSnapshotV3.contentSha256`；任一哈希不一致即 fail closed；
+- 所有 SHA-256 字段固定为 64 位小写十六进制；`approved_at` 必须带时区；
+- `context_ref` 与 `snapshot_ref` 必须分别精确绑定 ID、版本和内容哈希（三要素缺一不可）；
+- 批准记录独立于 SQL 候选审批（`reviewStatus` 由应用固定，不构成批准）；
+- ApprovalRecordV3 是 insert-only 的正向批准记录；修订必须产生新 context/snapshot 版本和
+  新批准记录，不能覆盖旧记录；
+- `approval_id` 可预先分配；context/snapshot 的 `approvalRef` 引用该 ID，完成载荷哈希后再
+  构造 ApprovalRecordV3；三者形成完整批准包，缺一即无效；
+- 任一引用或哈希不一致时批准记录无效并 fail closed；
+- 撤销、active pointer、supersession 事件和 MongoDB 事务**不属于 M1**，保持 M6 前的独立存储
+  设计事项；真实 M6 使用前必须完成设计和实现；
+- **本轮仅设计，不实现存储或事务**；未经用户批准前保持 proposed，不写入代码或测试。
+
+#### `validate_approval_closure_v3` 纯函数（M1 实现，V3 专属）
+
+M1 不实现 `ResolveMetadataRequestV3`，但 M1 契约测试需要验证 context/snapshot/approval 三者关系。
+冻结一个 V3 专属、无 wire `schemaVersion`、无外部副作用的纯函数：
+
+```text
+validate_approval_closure_v3(
+    project_context: ProjectBindingContextV3,
+    metadata_snapshot: GovernedMetadataSnapshotV3,
+    approval_record: ApprovalRecordV3,
+) -> None
+```
+
+- 直接接受 `ProjectBindingContextV3`、`GovernedMetadataSnapshotV3` 和 `ApprovalRecordV3`，
+  因此**不是跨版本共享函数**，V2 模块不得调用或导入该函数；
+- 可复用的只有 canonical SHA-256 等底层算法，不是本函数本身；
+- 成功返回 `None`；任一九组检查失败时抛出 `ApprovalClosureValidationErrorV3`；
+- 异常只携带稳定中性 issue code，不泄漏私有标识符或载荷内容；
+- 不访问 MongoDB、provider、SQL Server 或环境变量；不修改任何输入对象；
+- 验证逻辑即 DEV §5.2 所列九个有序检查组；
+- **实际载荷哈希算法**：使用 `application/canonical.py` 的 `canonical_content_sha256` 约定——
+  使用 camelCase、JSON 模式的完整模型内容；仅排除根级 `contentSha256`；不删除嵌套 sha256；
+  不排除 `approvalRef`、`approvedAt` 或其他业务字段；不复用 handoff 排除时间字段的特殊算法；
+  不改变输入对象，不静默排序或修复输入；
+- **信任边界**：`validate_approval_closure_v3` 成功只证明格式、实际载荷哈希、引用及声明状态
+  内部一致；它**不能证明** `actorRef` 是真实批准者、人工批准确实发生或该批准当前仍有效；
+  真实 M3/M6 必须通过独立受信批准来源核验（见 §3.6）；
+- M2 调用该函数，并把领域异常转换为 `BindingResolutionReportV3(status=blocked, ...)`；
+- 该函数**不是新的 wire 契约对象**，不加入 §4.3 版本表，无 `schemaVersion` 字段。
+
+## 3.4 复杂事实责任分工（冻结）
+
+- **Agent 1 / businessRuleReview**：业务规则、事实、筛选、聚合、时间语义、派生逻辑 owner；
+  负责把固定私有资料中的已确认事实转为新版本 catalog digest、规则版本和 handoff；
+  复杂布尔事实（R5/R6/R7/R8/合并组）的业务表达与派生语义由 Agent 1 负责；
+- **Agent 2 / SqlBot**：只为 `source`/`aggregate`/`exists` 基础事实生成受约束的单事实只读 SQL
+  候选；不假设真实数据库存在 `*_eligible` 物理列；集合型或复合条件必须在上游 vNext 中拆分为
+  可追溯基础事实，或定义明确的派生表达式；AST 只能证明参数/对象/列/join/`fact_value` 来源，
+  不能证明规则业务语义；
+- **metadataReview**：物理绑定、实体键、join 授权及 context/snapshot 的产生与批准 owner；
+  原始工作簿不能直接充当 snapshot 或 grant；
+- 不在 SqlBot 文档复制私有规则正文、公式和物理字段。
+
+#### 3.5 冻结领域异常（M1 实现）
+
+`ApprovalClosureValidationErrorV3` 定义在 `src/release_sql_bot/domain/project_bindings_v3.py`，
+与契约模型同文件，不单独建立异常模块。
+
+异常**只携带稳定 code**，不携带：
+
+- ID 实际值；
+- 哈希实际值；
+- 私有对象或字段；
+- `context`/`snapshot`/`approval` 原始载荷。
+
+冻结以下 9 个 issue code，与 §5.2 九个有序检查组对应（按顺序 fail-fast）：
+
+| # | issue code | 对应检查组（§5.2） |
+| --- | --- | --- |
+| 1 | `APPROVAL_ID_MISMATCH` | context/snapshot 的 `approvalRef.approvalId` 与 `approval_record.approvalId` 不一致 |
+| 2 | `APPROVAL_POLICY_MISMATCH` | 四处 `policyVersion` 不一致（含 `context.authorizationPolicyVersion`） |
+| 3 | `APPROVAL_TIME_MISMATCH` | 两份 `approvalRef` 与 `approval_record` 的 `approvedAt` 不一致（wire 字符串精确比较） |
+| 4 | `APPROVAL_CONTEXT_REF_MISMATCH` | `contextRef` 的 ID/版本/哈希与 context 不匹配（独立重算哈希） |
+| 5 | `APPROVAL_SNAPSHOT_REF_MISMATCH` | `snapshotRef` 的 ID/版本/哈希与 snapshot 不匹配（独立重算哈希） |
+| 6 | `APPROVAL_CONTENT_HASH_MISMATCH` | `approval_record` 自哈希不可重算 |
+| 7 | `APPROVAL_CONTEXT_NOT_APPROVED` | context 非 `approved` |
+| 8 | `APPROVAL_SNAPSHOT_NOT_APPROVED` | snapshot 非 `approved` |
+| 9 | `APPROVAL_SNAPSHOT_BINDING_MISMATCH` | `context.metadataSnapshotRef` 与 `approval_record.snapshotRef` 不一致 |
+
+映射规则：
+
+- 九个有序检查组中的每一项必须映射到上述唯一 code，不得多对一或一对多；
+- 同一输入同时存在多个错误时，按上表顺序返回第一个错误（fail-fast）；
+- M1 函数 `validate_approval_closure_v3` 抛出 `ApprovalClosureValidationErrorV3`；
+- M2 捕获该异常并转换成 `blocked` 报告；
+- M2 报告只记录 code，不记录异常内部输入。
+
+### 3.6 真实 M3/M6 受信批准来源门禁（proposed，冻结门禁要求，实现属于后续阶段）
+
+`validate_approval_closure_v3` 成功只证明内容闭包内部一致，不证明批准真实性。
+真实 M3/M6 调用前，受信应用服务**必须**通过受控的只读批准记录端口，按精确 `approvalId`
+取得 metadataReview 登记的记录，并执行以下独立核验步骤：
+
+1. 通过受控只读批准记录端口按精确 `approvalId` 取得 metadataReview 登记的记录；
+2. 比较取得的记录与携带记录的完整内容及哈希（逐字段一致）；
+3. context/snapshot 必须匹配该受信记录（ID、版本、内容哈希三要素）；
+4. 正式使用前按已实现生命周期规则检查有效性（active/superseded 状态）；
+5. 来源不可用、记录不存在、不匹配或失效时，provider/store 不发生后续副作用。
+
+约束：
+
+- handoff 背书和批准记录核验是**两个独立步骤**，不得合并；
+- 不接受调用方自报 `actorRef`/`status` 作为批准真实性证明；
+- 端口实现、存储和生命周期仍属于 M6 前的后续阶段，**不得塞入 M1**；
+- 不增加 12 项 wire 版本表对象数。
+
+**测试计划明确区分：**
+
+- **M1**：自洽包可以通过内容校验，但不得标记为真实批准；M1 保持纯函数和现有五文件范围，
+  不加入数据库访问或新 wire 对象；
+- **真实调用服务（后续测试要求，本轮不实现）**：完全自洽、却未登记在受信批准来源的包，
+  必须在 provider/store 之前被拒绝。
+
 ## 4. 元数据快照与契约版本决策（M1 冻结）
 
 ### 4.1 逐字段判定（`GovernedMetadataSnapshotV2` 与 FBR 版本无关性）
@@ -172,7 +353,7 @@ ProjectBindingContextV3（camelCase、extra=forbid、strict）
 第 6 节已确立）。因此：
 
 - **默认（冻结方向）**：新增 `GovernedMetadataSnapshotV3`，字段形状与上表等价、
-  `schema_version="3.0.0"`；DEV 实施时逐字段登记与 V2 的等价性映射作为测试夹具断言；
+  `schema_version="1.0.0"`；DEV 实施时逐字段登记与 V2 的等价性映射作为测试夹具断言；
 - **可选替代（被否决为默认，保留为评审选项）**：把物理 DTO 提取为版本中立共享模块供 V2/V3
   同时引用。该重构在 M1 前不实施；若未来采用，必须以独立评审证明模块不携带任何 V2 权威
   语义、且 V2 行为零变化。
@@ -181,8 +362,7 @@ ProjectBindingContextV3（camelCase、extra=forbid、strict）
 ### 4.3 契约版本表（下游对象独立演进，2026-09-06 审查新增）
 
 消费 `FactBindingRequest 3.0.0` 不等于下游对象继承 `3.0.0`：每个下游对象的 `schemaVersion`
-描述**其自身契约**的版本，独立演进、独立提升。V2 现值作为先例依据列出（V2 中只有候选契约
-使用 `2.0.0`，其余下游对象均为 `1.0.0`）：
+描述**其自身契约**的版本，独立演进、独立提升。V2 现值作为先例依据列出：
 
 | 对象 | 版本字段与首版 | 依据与说明 |
 | --- | --- | --- |
@@ -190,17 +370,23 @@ ProjectBindingContextV3（camelCase、extra=forbid、strict）
 | `HandoffClosureV3`（内容闭包） | `schemaVersion = "1.0.0"` | 新契约首版；其引用闭包携带 FBR `contractVersion=3.0.0` 与 Schema 身份/哈希 |
 | `ProjectBindingContextV3` | `schemaVersion = "1.0.0"` | 延续 `ProjectBindingContextV2`（1.0.0）先例；其 `rule_ref.schemaVersion = "3.0.0"` 表示**所引用的 RuleReader 规则契约版本** |
 | `GovernedMetadataSnapshotV3` | `schemaVersion = "1.0.0"` | 纯物理元数据 DTO，与 FBR 版本无关（4.1/4.2 节），延续 V2 快照先例 |
-| `ResolveMetadataRequestV3` | `schemaVersion = "1.0.0"` | 解析请求包装版本，延续 V2 先例 |
+| `ApprovalRecordV3`（批准记录） | `schemaVersion = "1.0.0"` | 新契约首版；insert-only 正向批准记录，独立于 SQL 候选审批 |
+| `ResolveMetadataRequestV3` | `schemaVersion = "1.0.0"` | 解析请求包装版本，延续 V2 先例；必须携带 `approvalRecord`（§5.2），M2 解析前验证其引用闭包 |
 | `BindingResolutionReportV3` | `schemaVersion = "1.0.0"` | 报告契约独立演进，延续 V2 resolution report 先例 |
+| `GenerateSqlCandidateRequestV3` | `schemaVersion = "1.0.0"` | 生成请求包装版本，延续 V2 先例 |
 | `SqlTemplateCandidateV3` | `schemaVersion = "3.0.0"` | **候选契约自身版本**：延续 `SqlTemplateCandidateV2.schemaVersion="2.0.0"` 的既有先例（候选契约版本与生成管线世代对齐），是显式设计决定，不是对 FBR 3.0.0 的机械继承；其 `rule_ref.schemaVersion="3.0.0"` 才是所引用规则契约版本 |
+| `ValidateSqlCandidateRequestV3` | `schemaVersion = "1.0.0"` | 静态门禁请求包装版本，延续 V2 先例 |
 | `SqlStaticValidationReportV3` | `schemaVersion = "1.0.0"` | 延续 `SqlStaticValidationReportV2`（1.0.0）先例 |
 | V3 候选存储文档包装 | `schemaVersion = "1.0.0"` | 延续 V2 存储文档包装（`mongodb_candidates.py` 的 `schemaVersion="1.0.0"`）先例；内嵌候选本体另带其自身 `3.0.0` |
 
+共 **12 个独立顶层契约对象**。`RepositoryVerifiedHandoffV3` 是受信应用服务在同一次调用中
+仓储背书后的内部结果，**没有 wire `schemaVersion`**，不列入本表。
+
 规则：
 
-1. 首版采用 `1.0.0` 的理由统一登记为“延续对应 V2 对象的既有版本先例，自身契约独立演进”；
+1. 首版采用 `1.0.0` 的理由统一登记为"延续对应 V2 对象的既有版本先例，自身契约独立演进"；
    `SqlTemplateCandidateV3` 采用 `3.0.0` 的理由如上表单独登记。
-2. `ruleRef.schemaVersion` 是唯一表达“所引用 RuleReader 规则契约版本”的字段；其余对象的
+2. `ruleRef.schemaVersion` 是唯一表达"所引用 RuleReader 规则契约版本"的字段；其余对象的
    `schemaVersion` 一律指自身契约。
 3. V2/V3 隔离依赖**类型系统与引用闭包**（独立模型、独立模块、闭包/报告/候选的哈希
    引用链），不依赖任何“相同数字的 schemaVersion”；测试矩阵第 2 项的双向拒绝按类型断言，
@@ -285,10 +471,45 @@ ResolveMetadataRequestV3（camelCase、extra=forbid、strict）
   binding_request:                    FactBindingRequestV3（与 closure.payload 逐字节一致）
   project_context:                    ProjectBindingContextV3（status=approved）
   metadata_snapshot:                  GovernedMetadataSnapshotV3（status=approved）
+  approval_record:                    ApprovalRecordV3（§3.3 批准记录；M2 解析前必须验证）
 ```
 
 无 `binding_gap_report` 字段：V2 的 `BindingGapReport` 是 Phase 2F 输出；V3 的等价门禁由
 内容闭包 + 仓储背书（5.1 节）与 intake batch 校验（Schema/身份/哈希/evidence 闭包）承担。
+
+**M2 批准记录验证（九个有序检查组，解析前必须全部通过，任一失败 → `blocked`）：**
+
+按以下顺序执行九个检查组，输入有多个失败时返回第一个失败组的 code（fail-fast）。
+同组可包含多个字段比较；不是"每个字段一个错误码"。
+
+1. **`APPROVAL_ID_MISMATCH`**：`project_context.approvalRef.approvalId` 必须等于
+   `approval_record.approvalId`（精确字符串一致性；approvalId 是不透明稳定 ID，不做哈希校验）；
+   `metadata_snapshot.approvalRef.approvalId` 同样必须等于 `approval_record.approvalId`。
+   组内顺序：context 先，snapshot 后。
+2. **`APPROVAL_POLICY_MISMATCH`**：以下四处 `policyVersion` 必须一致——
+   `project_context.approvalRef.policyVersion`、`metadata_snapshot.approvalRef.policyVersion`、
+   `approval_record.policyVersion`、`project_context.authorizationPolicyVersion`。
+   不能遗漏上下文本体的授权策略版本。
+3. **`APPROVAL_TIME_MISMATCH`**：`project_context.approvalRef.approvedAt`、
+   `metadata_snapshot.approvalRef.approvedAt`、`approval_record.approvedAt` 三者一致。
+   采用已序列化 wire 字符串精确比较，输入均须带时区；不在校验时静默改写时间。
+4. **`APPROVAL_CONTEXT_REF_MISMATCH`**：`approval_record.contextRef` 的 `contextId` 和
+   `contextVersion` 精确匹配 `project_context`；独立重算 `project_context` 内容哈希，
+   重算值必须同时等于 `project_context.contentSha256` 和 `approval_record.contextRef.sha256`。
+5. **`APPROVAL_SNAPSHOT_REF_MISMATCH`**：`approval_record.snapshotRef` 的 `snapshotId` 和
+   `snapshotVersion` 精确匹配 `metadata_snapshot`；独立重算 `metadata_snapshot` 内容哈希，
+   重算值必须同时等于 `metadata_snapshot.contentSha256` 和 `approval_record.snapshotRef.sha256`。
+6. **`APPROVAL_CONTENT_HASH_MISMATCH`**：独立重算 `approval_record` 内容哈希，并与
+   `approval_record.contentSha256` 比较。
+7. **`APPROVAL_CONTEXT_NOT_APPROVED`**：`project_context.status` 必须为 `approved`。
+8. **`APPROVAL_SNAPSHOT_NOT_APPROVED`**：`metadata_snapshot.status` 必须为 `approved`。
+9. **`APPROVAL_SNAPSHOT_BINDING_MISMATCH`**：`project_context.metadataSnapshotRef` 与
+   `approval_record.snapshotRef` 的 ID、版本和哈希全部一致。
+
+任一失败：`BindingResolutionReportV3.status=blocked`；不产生部分授权计划；不调用
+provider/store；issue code 不包含私有标识符或载荷内容。M3 在 provider 前重算 M2 时必须重复
+这些检查，不能仅信任携带的 `metadataResolved` 报告。approvalId 只做精确字符串一致性检查，
+不使用 approvalId 替代任何哈希校验。
 禁止为对齐形状而伪造空 gap report。
 
 ### 5.3 确定性解析规则
@@ -399,8 +620,8 @@ BindingResolutionReportV3
    （`stage`/`ruleCode`/`priority`/`conditionId`/`conditionPath`/`outcome`）与实体键/筛选/
    聚合/时间契约，参数只投影名称、类型、required 与来源声明，不投影参数值。
 4. `SqlTemplateCandidateV3`（应用组装，模型输出只是不可信 payload）：
-   - `schema_version="3.0.0"`——**候选契约自身版本**（4.3 节版本表第 7 行的显式设计决定，
-     不是机械继承）；`status=candidate`、`executable=false`、`review_status=pending`
+   - `schema_version="3.0.0"`——**候选契约自身版本**（见 §4.3 中 SqlTemplateCandidateV3 条目），
+     是显式设计决定，不是机械继承）；`status=candidate`、`executable=false`、`review_status=pending`
      （全部固定，模型不能提供或覆盖）；
    - `rule_ref`：`ruleSetId`/`ruleVersion`/`schemaVersion="3.0.0"`（此字段表示所引用的
      RuleReader 规则契约版本）/`sourceSha256`/`catalogDigest`/`candidatePayloadSha256`
@@ -498,6 +719,29 @@ BindingResolutionReportV3
 - V3 错误码命名空间独立于 V2（延续 DEV-20260906-03 第 13 节开放问题 2 的结论方向）；
 - 当前规划任务不新增任何入口；入口实现属于 M6 及以后任务。
 
+### 10.1 调用 Agent 2 生成 V3 SQL candidate 的完整条件
+
+用户可调用的真实生成路径必须同时满足：
+
+1. 调用方显式给出精确 `ruleVersion + requestId`；不接受“最新”或仅 `ruleId`。
+2. M3 服务在同一次调用中从 MongoDB 重读对应 V3 batch、重跑 intake 并构造
+   `RepositoryVerifiedHandoffV3`；仓储无记录或任一哈希不一致即停止。
+3. 该 handoff 已解决 BUG-20260908-02 所登记的业务表达缺口，或当前请求可由批准设计证明不受
+   该缺口影响；真实整批链路不得静默跳过坏请求。
+4. 存在与该规则、请求集合精确匹配且已批准的 V3 context、snapshot 和 grants；Excel 中的已确认
+   内容必须先转换为这些机器载荷，不能直接传给 provider。
+5. M1–M5 实现与离线测试完成，Phase 2G 重算结果为 `metadataResolved`，V3 candidate store 可用；
+   M6 提供显式 CLI/API 编排入口。
+6. MongoDB 使用最小权限：RuleReader V3 集合只读，SqlBot 候选集合仅具备所需 insert/index 权限；
+   配置完整且启动检查通过。
+7. 在线 provider 配置完整，并取得用户对当次调用及其有界重试的明确授权；离线 fake provider
+   回归不需要在线授权。
+8. 返回对象始终为 `candidate / reviewStatus=pending / executable=false`；后续静态通过、数据库
+   描述验证或持久化均不构成人工批准或执行许可。
+
+实现顺序允许 M1/M2 与上游新版本 handoff 的工程转换并行；但真实 M3/M6 调用必须等待第 1–7 项
+全部满足。
+
 ## 11. 测试矩阵（最低范围）
 
 1. **V3 happy path**：合成脱敏 V3 请求（含按闭包规则构造的完整 `HandoffClosureV3`）resolution →
@@ -548,17 +792,25 @@ BindingResolutionReportV3
 > [DEV-20260906-02](DEV-20260906-02-real-handoff-evidence-loop-orchestration.md) 后续审计
 > 修订章节。
 
-### M0：上游 commit 锚点与跨仓库基线（`in_progress`，blocked on upstream anchor）
+### M0：上游 commit 锚点与跨仓库基线（`in_progress`，来源锚点已解除）
 
-**状态口径（2026-09-06 审查修订）：M0 区分“审计子任务已完成”与“M0 整体已收口”。整体状态
-为 `in_progress`，被上游 commit 锚点阻断（blocked on upstream anchor）；M1 不得开始。**
+**当前状态（2026-09-09）：上游 commit 与三类哈希来源登记已由 T0 完成；M0 仍因本组
+REQ/BIZ/DEV 尚未批准并提交而保持 `in_progress`，M1 不得开始。以下 2026-09-06 快照保留为历史
+审计记录，不再代表当前上游状态。**
 
-- 已完成子任务：
+- 2026-09-09 已完成：上游 V3 契约提交、完整 commit 锚点、提交树原始字节哈希与运行时规范化
+  哈希登记；真实生成仍受 10.1 节其余门禁约束。
+- 2026-09-09 仍未完成：本组 REQ/BIZ/DEV 批准并提交。上游业务表达 vNext 是受影响事实进入真实
+  M3/M6 的门禁，不阻止 M1/M2 的离线契约实现。
+
+2026-09-06 历史快照（保留用于审计）：
+
+- 当时已完成子任务：
   - SqlBot 与 RuleAgent 只读基线审计（SqlBot 424 passed 离线基线、HEAD `b3e3d35`；RuleAgent
     HEAD `65a9684`、V3 Schema 未跟踪、SHA-256 `2c5e4603…` 复核一致；最新刷新见第 13 节）；
   - 设计缺口复现与登记（[BUG-20260906-01](../bugs/BUG-20260906-01-v3-phase4r-downstream-contract-gap.md)）；
   - 本链规划文档草稿（REQ/BIZ/DEV）及按人工审查意见的修订。
-- 未完成（M0 收口门禁，全部完成后 M0 才转为完成）：
+- 当时未完成：
   1. 本轮规划文档通过人工批准并纳入 Git 提交；
   2. RuleAgent V3 契约与相关代码完成独立审查并提交，取得真实 commit SHA；
   3. 提交后重新计算 V3 Schema SHA-256 并与 `2c5e4603…` 比对一致（不一致 → 停止并另立契约
@@ -569,15 +821,41 @@ BindingResolutionReportV3
 ### M1：V3 授权上下文、快照与 handoff 闭包契约
 
 - 前置条件：M0 收口（上游 V3 契约已提交、SHA-256 复核一致）；本 REQ/BIZ/DEV 已批准。
-- 内容：实现 `domain/project_bindings_v3.py`（context + snapshot + grants）与
-  `domain/handoff_closure_v3.py`（`HandoffClosureV3` 内容闭包 + `RepositoryVerifiedHandoffV3`
-  内部结果契约，形状按 5.1 节冻结）；4.3 节契约版本表落为各模型 `schema_version` 常量；
-  快照等价性夹具断言。
+- **M1 允许的五个实现文件固定为：**
+  1. `src/release_sql_bot/domain/project_bindings_v3.py`（context + snapshot + grants + approval +
+     `ApprovalClosureValidationErrorV3` 异常，定义在同文件）
+  2. `src/release_sql_bot/domain/handoff_closure_v3.py`（`HandoffClosureV3` 内容闭包 +
+     `RepositoryVerifiedHandoffV3` 内部结果契约，形状按 5.1 节冻结）
+  3. `src/release_sql_bot/application/validate_approval_closure_v3.py`（V3 专属纯函数；
+     V2 模块不得导入；无 wire schemaVersion）
+  4. `tests/contract/test_project_bindings_v3_contract.py`
+  5. `tests/contract/test_handoff_closure_v3_contract.py`
+  不得使用仓库根目录下的 `application/` 路径。
+- 内容：4.3 节契约版本表落为各模型 `schema_version` 常量；快照等价性夹具断言；
+  **`validate_approval_closure_v3` 纯函数**（§3.3）及其契约测试；
+  **`ApprovalClosureValidationErrorV3` 异常**（§3.5）及其 9 个 issue code。
 - DoD：契约测试覆盖 camelCase/extra=forbid/strict/枚举/长度/唯一性；V2 载荷被拒；context
   不可变载荷与生命周期方案（3.2 节）有测试（版本递增、旧载荷不变、生命周期载体独立）；
-  类型断言证明 `RepositoryVerifiedHandoffV3` 不可从 JSON 反序列化；版本独立性测试（矩阵 13）。
+  类型断言证明 `RepositoryVerifiedHandoffV3` 不可从 JSON 反序列化；版本独立性测试（矩阵 13）；
+  `validate_approval_closure_v3` 九个有序检查组全部有正反测试（含 ID/版本/哈希不一致、非 approved、
+  自哈希篡改、输入对象逐字节不变）。
 - 失败语义：契约校验失败即构造失败，无部分对象。
 - 测试范围：矩阵 2（V2→V3 方向）、5（类型断言部分）、11、13；新增契约测试。
+
+#### `test_project_bindings_v3_contract.py` 最低覆盖（除现有 12 项外，再明确）
+
+- 九个有序检查组（§5.2）各有一个精确反例；
+- 多重错误输入验证 fail-fast 顺序（同一输入存在多个错误时，按 §3.5 顺序返回第一个）；
+- 异常文本不包含测试输入中的 ID、哈希或载荷值；
+- V2 模块不导入 V3 纯函数（静态断言）；
+- 纯函数调用前后输入对象序列化结果完全一致；
+- **哈希算法专项**：修改 context 业务内容但保留旧自哈希和批准引用，必须失败；
+  修改 snapshot 业务内容但保留旧自哈希和批准引用，必须失败；
+  只修改 `context.authorizationPolicyVersion`，必须失败。
+
+#### `test_handoff_closure_v3_contract.py`
+
+- 仍只测试 handoff 闭包，不混入 approvalRecord 测试。
 
 ### M2：V3 元数据解析（Phase 2G V3）
 
@@ -605,6 +883,9 @@ BindingResolutionReportV3
 - 失败语义：背书/重算失败或未授权 → 停止（provider 与 store 调用 0 次）；重试耗尽/
   输出拒绝 → 不落库。
 - 测试范围：矩阵 1（生成段）、2、3、4、5、6、7、8。
+
+真实调用附加门禁：受影响事实必须使用完成业务表达修订的新版本 handoff，并具备已批准的
+context/snapshot/grants；离线 fake provider 实现和测试不以真实 provider 授权为前置。
 
 ### M4：V3 静态门禁（Phase 4 V3）
 
@@ -636,7 +917,8 @@ BindingResolutionReportV3
 - 内容：按修订后的 Phase 4R 编排设计实现 V3 编排服务、CLI 入口、证据包组装与泄漏检查；
   编排按第 1 节**运行状态顺序**执行（生成成功 → 先 insert-only 存储并记录 outcome → 再
   对同一 candidate 运行 Phase 4）；API 路由若纳入本阶段一并显式版本化。
-- DoD：任一阶段失败时 provider/Mongo 写副作用为 0 且有测试；编排对每个有外部副作用的阶段
+- DoD：前置背书或解析失败时 provider/store 副作用为 0；生成或存储之后的失败必须保留已发生
+  outcome 与不可变审计记录并停止后续阶段。编排对每个有外部副作用的阶段
   在同一次调用中完成仓储背书并记录 repository verification 阶段与结果进证据包；证据包
   字段齐备、可复核，且包含 `batch_sha256`/`payload_sha256`（追溯引用）与背书结果；公开
   PROG 只有脱敏内容；静态 blocked 候选的审计记录完整保留。
@@ -650,6 +932,8 @@ BindingResolutionReportV3
 测试数量当作固定跨仓库门禁反复引用。**M0 的稳定门禁只有本节末尾的外部前置清单**（工作树
 经独立审查、V3 契约与实现已提交、取得真实 commit SHA、Schema SHA-256 在该提交树上重新
 核对、必要检查在该提交树上通过）。本任务未修改 RuleAgent，未运行其任何持久化脚本。
+
+### 2026-09-06 历史观察（保留用于审计，不再代表当前上游状态）
 
 - 上游 HEAD `65a96846b3ae991b42a8159dbbee43a9bbe15846`；`contracts/`
   `fact-binding-request-3.0.0.schema.json` 为**未跟踪工作区文件**，V3 契约与大量 V3 代码、
@@ -675,30 +959,46 @@ BindingResolutionReportV3
   `pip check` → No broken requirements found。
 - 快照间差异（如实登记，不猜测原因、不追改上游）：pytest 通过数 173→174→189→201 持续
   演进（快照 5 比快照 4 再 +12），ruff 错误在快照 3 后消失，format 文件数 176→179，
-  git 条目 94→99。**M0 保持 `in_progress` / blocked on upstream anchor**；以下为唯一
-  稳定门禁：
-- 外部前置清单：① RuleAgent V3 契约与相关代码完成独立代码审查并提交，取得真实 commit
-  SHA；② 在该提交树上重新计算 V3 Schema SHA-256——若仍为 `2c5e4603…`，SqlBot 才能把
-  `docs/specs/fact-binding-request-3.0.0-source.json` 的来源更新为已提交状态并记录
-  commit；若发生任何字节变化，立即停止并另立契约差异评审；③ 必要检查（pytest/ruff/mypy/
-  pip check）在该提交树上通过并以该次运行结果登记；④ 上游 Schema v5 migration 与
-  真实 batch 写入仍需单独授权；⑤ 本任务与 M1 前的全部里程碑均不运行真实持久化脚本。
-  不得为追平 SqlBot 文档而修改 RuleAgent。
+  git 条目 94→99。
+
+### 2026-09-09 当前已验证状态（T0 只读核验）
+
+- RuleReader HEAD `01ddae0`，提交 `bad6fd349a6ecbff190b9bd0ac1bc34a48588325` 已跟踪
+  `contracts/fact-binding-request-3.0.0.schema.json`，无后续修改；
+- 提交树原始字节（LF, 29870 字节）SHA-256 = `0e39c7ac…`；运行时 CRLF 规范化哈希 =
+  `2c5e4603…`；两端 JSON 结构相等；
+- 来源清单已登记 `verifiedCommitTree` 与 `runtime`（见 `docs/specs/fact-binding-request-3.0.0-source.json`）。
+
+### 外部前置清单（2026-09-06 历史版本，当前状态见上方"2026-09-09 当前已验证状态"）
+
+以下为 2026-09-06 观察时的前置清单，部分已由 T0 解除：
+
+① ~~RuleAgent V3 契约与相关代码完成独立代码审查并提交，取得真实 commit SHA~~（**已由 T0
+完成**：commit `bad6fd3…`，RuleReader HEAD `01ddae0`）；
+② ~~在该提交树上重新计算 V3 Schema SHA-256~~（**已由 T0 完成**：提交树 `0e39c7ac…`，
+运行时 `2c5e4603…`，来源清单已更新）；
+③ 必要检查（pytest/ruff/mypy/pip check）在该提交树上通过并以该次运行结果登记（**历史观察
+时的要求**）；
+④ 上游 Schema v5 migration 与真实 batch 写入仍需单独授权；
+⑤ 本任务与 M1 前的全部里程碑均不运行真实持久化脚本。
+
+**M0 当前唯一剩余门禁：REQ/BIZ/DEV-20260906-04 完成人工批准并纳入 Git 提交。**
 
 ## 14. 开放问题
 
 | # | 问题 | Owner | 阻断 |
 | --- | --- | --- | --- |
-| 1 | V3 上下文/快照批准载荷的维护者与批准记录载体（复用 metadataReview 流程的细节） | metadataReview | M1 |
+| 1 | ApprovalRecordV3 结构（§3.3 proposed）与 M1 创建/版本语义已形成 proposed 方案；当前只等待用户随整个 M0 审批包批准 | metadataReview + sqlBot | M1（随 M0 审批包） |
 | 2 | context 生命周期事件记录/active pointer 的存储设计与审计载体（3.2 节方案的实施确认；M1 只做契约与纯计算校验，存储设计在 M6 编排前冻结） | sqlBot + metadataReview | M6 |
 | 3 | V3 Prompt 版本命名与 `exactOutputDeclarations` 等价结构设计 | sqlBot | M3 |
 | 4 | parser-neutral 检查是提取共享模块还是 V3 内参数化副本（两者都合规，实施时二选一并登记） | sqlBot | M4 |
 | 5 | V3 存储集合授权、账号隔离与配置键命名 | 运维 | M5 |
 | 6 | M6 编排与证据包的入口形态（CLI/HTTP）与授权记录方式 | 用户 | M6 |
-| 7 | 上游提交时间表与哈希复核安排 | 用户 + Agent 1 owner | M1 起全部 |
 
 > 已决事项登记：`usage_traceability_sha256` 的参与字段、排序键与重复身份规则已于 5.4 节
-> 冻结（原开放问题“M2 前冻结摘要规范”关闭）。
+> 冻结（原开放问题”M2 前冻结摘要规范”关闭）；上游提交与来源哈希复核已由 2026-09-09 T0
+> 完成（原开放问题 7 关闭）；ApprovalRecordV3 结构与 M1 创建/版本语义已于 §3.3 形成
+> proposed 方案，撤销/active pointer/supersession/MongoDB 事务仍由 M6 开放问题 2 承载。
 
 ## 15. 文档影响
 

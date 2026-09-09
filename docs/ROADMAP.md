@@ -140,7 +140,7 @@
 本阶段定位于 Phase 5A（已完成，不依赖本阶段）与 Phase 5B/5C 之间，是进入 5B 的前置门禁：
 
 - 精确、不可变、可回读的 Agent 1 规则版本与完整事实级 handoff（`blockingRequestCount=0`）；
-- 批准的 `ProjectBindingContextV2` 与匹配的 `GovernedMetadataSnapshot`（缺任一即
+- 批准的版本匹配项目上下文与受治理元数据快照（V3 使用独立 V3 契约；缺任一即
   `blockedUpstream`，不用合成数据冒充真实业务就绪）；
 - 真实 handoff intake 与 Phase 2G 重算为 `metadataResolved`；
 - 单事实在线候选生成（用户当次明确授权）、insert-only 候选持久化与 Phase 4 静态 `passed`；
@@ -148,7 +148,8 @@
 - 关键前置：Agent 1 侧已批准 V3（`FactBindingRequest 3.0.0`）路径；SqlBot intake 升级按
   REQ-20260906-03 / BIZ-20260906-02 / DEV-20260906-03 完成 V3 批次只读 intake 的**离线实现**
   （冻结 Schema 副本、独立 consumer、batch 门禁与只读 API，全部合成脱敏测试通过）。上游 V3
-  契约文件提交、MongoDB Schema v5 真实落库与真实读取授权完成前，真实数据验证与本阶段保持阻断。
+  契约提交与 T0 来源登记已经完成；真实调用仍要求同一次仓储背书、已批准 context/snapshot/grants
+  和独立的在线 provider 授权。
 
 2026-09-06 基线审计修订（不改写上文）：
 
@@ -160,10 +161,10 @@
   `proposed`）：独立 V3 契约链（V3 授权上下文/快照 → Phase 2G V3 → V3 候选生成 → V3
   静态门禁 → V3 候选存储 → V3 编排与证据包，里程碑 M1–M6）插入在本阶段原 Milestone 1–8
   之前；
-- 在该下游链完成前，不实现 Phase 4R 编排服务，不生成真实候选；上游 V3 契约文件仍未提交
-  （无 commit 锚点，SHA-256 复核与冻结值一致），仍是本阶段外部阻断项。Phase 4R Milestone 0
-  按两级口径登记：审计子任务已完成，整体未收口（`in_progress`，blocked on upstream
-  anchor），Milestone 1 不得开始。
+- 在该下游链完成前，不实现 Phase 4R 编排服务，不生成真实候选。2026-09-09 已完成上游 commit
+  与三类哈希来源登记，原“无 commit 锚点”阻塞解除；固定私有资料中的现有事实也已由用户确认，
+  后续不再重复索取。当前剩余工作是上游业务表达 vNext、事实到批准 context/snapshot/grants 的
+  工程转换，以及 V3 M1–M6 实现。Milestone 0 仍因规划文档未批准并提交而保持 `in_progress`。
 
 ## Phase 5：受限 SQL Server 验证
 

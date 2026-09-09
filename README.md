@@ -67,6 +67,10 @@ V3 的 `readyForMetadataResolution` 目前只表示批次通过了只读 intake 
 旧 `ready` 仅属于 V1 legacy API；候选生成成功不表示已通过 AST。即使 Phase 4 静态报告为 `passed`，
 也不表示 SQL 已通过受限环境验证、人工审核或可以执行。
 
+2026-09-09 的实施规划已记录：固定私有资料中实际存在的事实均已由用户确认，后续不再重复索取；
+这些事实仍须由上游形成新版本 handoff，并由 metadataReview 转换、批准为 V3 context/snapshot/
+grants，之后才能进入 Agent 2 的真实 V3 生成链。事实确认本身不授予表列访问、模型调用或执行权限。
+
 Phase 2G 的元数据快照只描述物理事实，只有版本化项目上下文中的精确显式 grant 才授予关系、列、
 实体键和 join 权限。解析 API 完全离线、无持久化且不装配 SQL Server 或模型调用。本地参考资料已在
 [REQ-20260828-03](docs/requirements/REQ-20260828-03-local-candidate-evidence-integration.md) 的独立显式
@@ -266,6 +270,8 @@ uv run pytest
 - [FactBindingRequest 3.0.0 下游管线对齐需求](docs/requirements/REQ-20260906-04-v3-downstream-pipeline-alignment.md)
 - [V3 下游管线权威边界与复用决策](docs/decisions/BIZ-20260906-03-v3-downstream-authority-boundary.md)
 - [FactBindingRequest 3.0.0 下游管线对齐设计与实施计划](docs/architecture/DEV-20260906-04-v3-downstream-pipeline-alignment.md)
+- [V3 下游管线权威边界与复用决策](docs/decisions/BIZ-20260906-03-v3-downstream-authority-boundary.md)
+- [FactBindingRequest 3.0.0 下游管线对齐设计与实施计划](docs/architecture/DEV-20260906-04-v3-downstream-pipeline-alignment.md)
 - [V3 intake 与 Phase 4R 下游契约缺口](docs/bugs/BUG-20260906-01-v3-phase4r-downstream-contract-gap.md)
 - [FactBindingRequest 3.0.0 intake 升级需求](docs/requirements/REQ-20260906-03-fact-binding-v3-intake.md)
 - [FactBindingRequest 3.0.0 intake 权威边界](docs/decisions/BIZ-20260906-02-fact-binding-v3-authority-boundary.md)
@@ -304,7 +310,7 @@ uv run pytest
 - [双 Agent 职责决策](docs/decisions/BIZ-20260819-01-agent2-role-alignment.md)
 - [事实绑定技术方案](docs/architecture/DEV-20260819-01-fact-binding-contract.md)
 - [阶段路线图](docs/ROADMAP.md)
-- [当前进度](docs/progress/PROG-20260906.md)
+- [当前进度](docs/progress/PROG-20260909.md)
 
 旧的“整规则异常集合 SQL”文档作为历史记录保留，不再指导 SQL 生成；其中规则 JSON Schema 1.0
 只被复用于确定性的规则读取校验、canonicalization、哈希和 diff。

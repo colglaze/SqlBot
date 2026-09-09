@@ -45,13 +45,14 @@
    relations/relationships、approval、自哈希）均为纯物理事实，不含任何 FactBindingRequest
    语义；但 [BIZ-20260906-02](BIZ-20260906-02-fact-binding-v3-authority-boundary.md) 与
    REQ-20260906-03 第 6 节确立的模块隔离规则禁止 V3 代码导入 V2 consumer 模型。因此默认
-   建立字段形状等价的独立 V3 快照契约并逐字段登记等价性；把物理 DTO 提取为版本中立共享
-   模块属可选重构，必须以独立评审证明“无 V2 权威语义带入”后才可采用。
+   建立字段形状等价的独立 V3 快照契约（`schema_version=”1.0.0”`，逐字段登记等价性）；
+   把物理 DTO 提取为版本中立共享模块属可选重构，必须以独立评审证明”无 V2 权威语义带入”后才可采用。
 5. **V3 项目授权上下文是新契约，生命周期方案一致性冻结。** `ProjectBindingContextV2` 内嵌
    V2 `ruleRef`（`ruleId` 语义）且 `requestIds` 长度上限（≤384）与 V3（≤420）不一致，不能
-   承载 V3 规则引用闭包（`ruleSetId`、`schemaVersion=3.0.0`、`catalogDigest`、
-   `candidatePayloadSha256`）。metadataReview 仍为唯一授权 owner，但批准载荷必须使用 V3
-   上下文契约。生命周期：context 业务载荷 insert-only、不可变；新版本用
+   承载 V3 规则引用闭包（`ruleSetId`、`rule_ref.schemaVersion="3.0.0"` 表示所引用的 RuleReader
+   规则契约版本、`catalogDigest`、`candidatePayloadSha256`）。metadataReview 仍为唯一授权
+   owner，但批准载荷必须使用 V3 上下文契约。上下文自身 `schema_version="1.0.0"`（延续 V2
+   上下文先例），独立演进。生命周期：context 业务载荷 insert-only、不可变；新版本用
    `contextVersion+1` 新文档，旧载荷永不原地改写；active/superseded 生命周期用独立生命
    周期事件或 active pointer + compare-and-swap 表达并有独立审计；不存在“置旧记录
    superseded 且禁止 update”的矛盾路径；M1 只做契约与纯计算校验，不顺手实现 MongoDB
@@ -65,40 +66,59 @@
    `extra=forbid` 契约拒绝 V3 载荷本身是正确行为，不得为其增设兼容层。
 8. **路由显式隔离，无自动版本识别。** V2/V3 API 与 CLI 入口按显式版本段隔离；不接受自动
    版本识别、内容嗅探降级或“最新”选择；本决策不要求新增任何入口。
-9. **上游锚点是外部前置。** V3 下游全部实施里程碑以“上游 V3 契约已提交到 RuleAgent、取得
-   真实 commit SHA、SHA-256 复核为 `2c5e4603…`”为前置；哈希不一致时立即停止并另立契约差异
-   评审。在取得上游 commit 锚点前，任何下游产物都不得把来源声明为已提交状态。
+9. **上游锚点按原始字节与运行时规范化分别复核。** 上游 V3 契约必须固定到真实 commit；
+   提交树原始字节哈希与 SqlBot 运行时规范化哈希分别按
+   `docs/specs/fact-binding-request-3.0.0-source.json` 登记，不能互相冒充。两端 JSON 结构或契约
+   身份不一致时立即停止并另立契约差异评审。2026-09-09 T0 已完成上游提交与三类哈希登记
+   （commit `bad6fd3…`，提交树 `0e39c7ac…`，运行时 `2c5e4603…`），来源锚点阻塞解除；
+   M0 当前唯一剩余门禁为本组 REQ/BIZ/DEV 批准并提交。
 10. **424 passed 是离线合成基线。** SqlBot 当前测试基线全部由合成脱敏 fixture 驱动；它证明
     契约与门禁离线行为，不构成真实数据验证，不得在任何文档或进度中表述为真实验证。
-11. **Phase 2G V3 输入必须绑定 handoff 内容闭包，外部副作用路径必须仓储背书。**
+11. **Phase 2G V3 输入必须绑定 handoff 内容闭包和批准记录，外部副作用路径必须仓储背书。**
     `ResolveMetadataRequestV3` 不得只接受裸 `FactBindingRequestV3`：请求必须携带
     `HandoffClosureV3` 内容闭包（ruleVersion/requestId/factCode/payloadSha256/batchSha256/
-    contractSchemaId/contractSchemaSha256/intake status 快照/精确 payload）。**内容闭包与
+    contractSchemaId/contractSchemaSha256/intake status 快照/精确 payload）**和**
+    `ApprovalRecordV3`（九个有序检查组全部通过后，批准关系才有效）。**内容闭包与
     仓储真实性分层**：哈希闭包只能证明内容内部一致，不能证明 batch 真实存在于 MongoDB、
     由 RuleReader 写入、intakeStatus 来自真实 intake 或载荷属于当前批准的真实运行；从
     HTTP/CLI JSON 反序列化的 closure 不得称为 repository-verified attestation。仓储真实性
     由 `RepositoryVerifiedHandoffV3` 承担：一切外部副作用路径（provider 调用、candidate
     store 写入、Phase 4R 真实证据包、未来真实 V3 生成入口）必须在同一次应用调用中按精确
     `ruleVersion + requestId` 经仓储重读 batch、重新执行 V3 intake、选择唯一 request 并与
-    携带 closure/context/snapshot 逐字段逐哈希比较；仅“重新计算调用方提供的 hash”不构成
+    携带 closure/context/snapshot 逐字段逐哈希比较；仅”重新计算调用方提供的 hash”不构成
     背书；任一哈希不一致或仓储无 batch 即 provider/store 零调用；客户端自报 ready 不构成
-    证明。M3 生成服务采用**方案 a（冻结）**：直接依赖只读 handoff repository，在 provider
-    前于服务自身完成仓储重读与背书。纯离线测试可携带完整合成 closure，但结论不构成真实
-    仓储证明；candidate、静态报告与证据包中的 `batchSha256`/`payloadSha256` 是追溯引用
-    而非真实性证明，真实运行证据还必须记录 repository verification 阶段和结果；不得用
-    V2 `BindingGapReport` 替代。
+    证明。未携带 `ApprovalRecordV3` 时不得形成 `metadataResolved`；`approvalRecord` 不是
+    候选审核记录，不能由客户端自报状态替代。**批准闭包校验失败语义（冻结）**：九个有序检查组
+    按顺序 fail fast，任一失败即 `blocked`；失败使用稳定中性 issue code（完整列表见 DEV §3.5），
+    不泄漏 ID 实际值、哈希实际值、私有对象/字段或 context/snapshot/approval 原始载荷；
+    M2 报告只记录 code。`validate_approval_closure_v3` 成功只证明内容闭包内部一致，不证明批准真实性，
+    真实 M3/M6 必须通过独立受信批准来源核验（DEV §3.6）。M3 生成服务采用**方案 a（冻结）**：直接依赖
+    只读 handoff repository，在 provider 前于服务自身完成仓储重读与背书。纯离线测试可携带
+    完整合成 closure，但结论不构成真实仓储证明；candidate、静态报告与证据包中的
+    `batchSha256`/`payloadSha256` 是追溯引用而非真实性证明，真实运行证据还必须记录
+    repository verification 阶段和结果；不得用 V2 `BindingGapReport` 替代。
 12. **下游对象版本独立演进。** `FactBindingRequest.contractVersion="3.0.0"` 只属于上游交接
-    载荷；`HandoffClosureV3`、context、snapshot、解析请求、解析报告、候选、静态报告与存储文档
-    包装各自拥有独立 `schemaVersion` 并独立演进，不因消费 FBR 3.0.0 机械继承版本号；
-    `ruleRef.schemaVersion` 是唯一表达所引用 RuleReader 规则契约版本的字段；V2/V3 隔离
-    依赖类型与引用闭包，不依赖版本号数字。版本首值与理由见
+    载荷；`HandoffClosureV3`、context、snapshot、`ApprovalRecordV3`、解析请求、解析报告、生成请求、
+    候选、静态报告与存储文档包装各自拥有独立 `schemaVersion` 并独立演进，不因消费 FBR 3.0.0
+    机械继承版本号；`ruleRef.schemaVersion` 是唯一表达所引用 RuleReader 规则契约版本的字段；
+    V2/V3 隔离依赖类型与引用闭包，不依赖版本号数字。版本首值与理由见
     [DEV-20260906-04](../architecture/DEV-20260906-04-v3-downstream-pipeline-alignment.md)
-    4.3 节版本表。
+    4.3 节版本表。共 **12 个独立顶层契约对象**；`RepositoryVerifiedHandoffV3` 是内部受信结果，
+    无 wire `schemaVersion`。
 13. **运行状态顺序保持既有 Phase 4R 状态机。** 运行顺序冻结为
     `candidateGenerated → candidateStored → staticPassed`：生成成功后先 insert-only 保存
     候选并记录存储 outcome，再对同一 candidate 运行 Phase 4，静态 blocked 候选仍保有审计
     记录，不得删除、覆盖或修改；存储成功不代表静态通过。实施里程碑顺序（M4 静态门禁代码
     可先于 M5 存储交付）不构成对运行顺序的更改，因此无需新增改变运行顺序的决策。
+14. **固定私有资料中的现有事实不再重复向用户确认。** 用户于 2026-09-09 明确确认：固定
+    `RuleDataReferences` bundle 中 Excel 与其他资料实际存在的数据、字段、对象、枚举、关系、
+    规则结构和执行顺序均为本项目已确认事实；资料内滞后的“待确认”“pending”等状态标签不
+    推翻实际内容。实现前必须先固定 commit、bundle digest 与来源文件 SHA-256，再由
+    `businessRuleReview` 将规则事实转成新版本 handoff，由 `metadataReview` 将物理事实转成
+    版本化 context/snapshot/grant。该确认消除重复索取事实的需要，但不直接创建运行时授权、
+    不批准候选，也不授权数据库或 provider 调用。只有固定资料中确实不存在的信息才能登记为
+    待补充；资料间差异优先按用户指定的主来源与现有证据完成版本化裁决，不得要求用户重填已经
+    存在的内容，也不得由模型猜测。
 
 ## 2. 责任归属
 
@@ -107,6 +127,8 @@
   V3 快照契约；V2 批准载荷不自动等同于 V3 批准；
 - `sqlBot`：V3 下游契约设计、确定性解析、门禁与存储实现；对 V2 行为零变化负责；
 - 运维/用户：上游契约提交与哈希复核授权、真实落库授权、V3 存储集合授权与账号隔离确认。
+
+固定资料的事实确认与运行授权是两件事：前者已经完成，后者仍按每个真实副作用步骤单独门禁。
 
 责任 owner 只表示复核与决策责任，不授予修改 RuleReader 审计记录、生产元数据或 SQL 的权限。
 
