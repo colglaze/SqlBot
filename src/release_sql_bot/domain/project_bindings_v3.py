@@ -1,12 +1,14 @@
 """Independent V3 project authorization and governed metadata contracts.
 
 V3 downstream chain: ProjectBindingContextV3, GovernedMetadataSnapshotV3,
-ApprovalRecordV3, and ApprovalClosureValidationErrorV3.
+ApprovalRecordV3, ResolveMetadataRequestV3, and
+ApprovalClosureValidationErrorV3.
 
 This module is structurally incompatible with the V2 project bindings by design:
 no conversion, downgrade, or field-trimming path exists in either direction.
 V3 request identifiers use a 420-character limit (V2 uses 384).
 V3 rule references carry catalogDigest/candidatePayloadSha256 provenance.
+ResolveMetadataRequestV3 只负责结构和类型契约；后续应用服务负责解析门禁。
 """
 
 from __future__ import annotations
@@ -17,7 +19,13 @@ from typing import Annotated, Any, Literal
 from pydantic import ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
-from release_sql_bot.domain.fact_bindings_v3 import RuleRefV3, V3ConsumerModel
+from release_sql_bot.domain.fact_bindings_v3 import (
+    FactBindingRequestV3,
+    RuleRefV3,
+    V3ConsumerModel,
+    V3ReportModel,
+)
+from release_sql_bot.domain.handoff_closure_v3 import HandoffClosureV3
 
 _SHA256_PATTERN = r"^[a-f0-9]{64}$"
 _STABLE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"
@@ -369,3 +377,214 @@ class ApprovalClosureValidationErrorV3(Exception):
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}(code={self.code!r})"
+
+
+class ResolveMetadataRequestV3(_V3Base):
+    """V3 metadata-resolution request contract (M2 第三子任务).
+
+    Pure structural and type contract. Carries the handoff closure,
+    binding request, project context, metadata snapshot and approval
+    record for subsequent offline resolution.
+
+    M1/M2 职责边界：本类只负责结构和类型契约。不在 Pydantic
+    validator 中执行：
+    - payloadSha256 重算；
+    - Schema 来源核验；
+    - closure 与 bindingRequest 跨字段一致性；
+    - context/snapshot/approval 九组校验；
+    - context、snapshot 自哈希校验；
+    - projectRef、ruleRef、requestId 范围一致性；
+    - relation/column/grant 解析；
+    - usage 摘要重算。
+
+    这些检查属于后续 resolve_metadata_v3 应用服务。
+    因此只要各自结构合法，本契约必须允许构造；后续解析器负责阻断。
+
+    不构成仓储真实性证明；不证明真实 batch 已验证。
+    """
+
+    schema_version: Literal["1.0.0"]
+    project_ref: ProjectRefV3
+    handoff_closure: HandoffClosureV3
+    binding_request: FactBindingRequestV3
+    project_context: ProjectBindingContextV3
+    metadata_snapshot: GovernedMetadataSnapshotV3
+    approval_record: ApprovalRecordV3
+
+
+# ---------------------------------------------------------------------------
+# BindingResolutionReportV3 and nested output contracts (M2 第四子任务)
+# ---------------------------------------------------------------------------
+
+
+class ResolutionStatusV3(StrEnum):
+    BLOCKED = "blocked"
+    METADATA_RESOLVED = "metadataResolved"
+
+
+ResolutionStatusWire = Annotated[ResolutionStatusV3, Field(strict=False)]
+
+
+class ResolvedFieldV3(_V3Base):
+    field_id: str = Field(pattern=r"^[a-z][A-Za-z0-9_.-]*$", max_length=160)
+    role: Literal["value", "entityKey", "filter", "groupBy", "time"]
+    authorization_id: str = Field(pattern=_STABLE_ID_PATTERN, max_length=200)
+    column_grant_id: str = Field(pattern=_STABLE_ID_PATTERN, max_length=200)
+    schema_name: str = Field(min_length=1, max_length=128)
+    relation_name: str = Field(min_length=1, max_length=128)
+    column_name: str = Field(min_length=1, max_length=128)
+    evidence_ids: list[str] = Field(min_length=1)
+
+
+class ResolvedEntityKeyV3(_V3Base):
+    parameter_name: str = Field(pattern=r"^[a-z][A-Za-z0-9]*$", max_length=100)
+    field_id: str = Field(pattern=r"^[a-z][A-Za-z0-9_.-]*$", max_length=160)
+    authorization_id: str = Field(pattern=_STABLE_ID_PATTERN, max_length=200)
+    column_grant_id: str = Field(pattern=_STABLE_ID_PATTERN, max_length=200)
+    schema_name: str = Field(min_length=1, max_length=128)
+    relation_name: str = Field(min_length=1, max_length=128)
+    column_name: str = Field(min_length=1, max_length=128)
+    evidence_ids: list[str] = Field(min_length=1)
+
+
+class ResolvedFilterV3(_V3Base):
+    filter_id: str = Field(pattern=r"^[a-z][A-Za-z0-9_.-]*$", max_length=160)
+    field_id: str = Field(min_length=1, max_length=160)
+    schema_name: str = Field(min_length=1, max_length=128)
+    relation_name: str = Field(min_length=1, max_length=128)
+    column_name: str = Field(min_length=1, max_length=128)
+    evidence_ids: list[str] = Field(min_length=1)
+
+
+class ResolvedAggregationV3(_V3Base):
+    mode: Literal["none", "precomputed", "compute", "exists"]
+    function: str | None = Field(default=None, max_length=80)
+    input_field_ids: list[str]
+    group_by_field_ids: list[str]
+    distinct: bool | None = None
+    evidence_ids: list[str] = Field(min_length=1)
+
+
+class ResolvedTimeRangeV3(_V3Base):
+    mode: Literal["none", "asOf", "between"]
+    time_field_id: str | None = Field(default=None, max_length=160)
+    time_schema_name: str | None = Field(default=None, max_length=128)
+    time_relation_name: str | None = Field(default=None, max_length=128)
+    time_column_name: str | None = Field(default=None, max_length=128)
+    evidence_ids: list[str] = Field(min_length=1)
+
+
+class ResolvedJoinV3(_V3Base):
+    join_grant_id: str = Field(pattern=_STABLE_ID_PATTERN, max_length=200)
+    left_schema_name: str = Field(min_length=1, max_length=128)
+    left_relation_name: str = Field(min_length=1, max_length=128)
+    left_column_name: str = Field(min_length=1, max_length=128)
+    right_schema_name: str = Field(min_length=1, max_length=128)
+    right_relation_name: str = Field(min_length=1, max_length=128)
+    right_column_name: str = Field(min_length=1, max_length=128)
+    join_type: JoinTypeWire
+    evidence_ids: list[str] = Field(min_length=1)
+
+
+class HandoffRefsV3(_V3Base):
+    batch_sha256: str = Field(pattern=_SHA256_PATTERN)
+    payload_sha256: str = Field(pattern=_SHA256_PATTERN)
+    contract_schema_id: str = Field(min_length=1, max_length=200)
+    contract_schema_sha256: str = Field(pattern=_SHA256_PATTERN)
+
+
+class ResolutionHashesV3(_V3Base):
+    payload_sha256: str = Field(pattern=_SHA256_PATTERN)
+    context_sha256: str = Field(pattern=_SHA256_PATTERN)
+    snapshot_sha256: str = Field(pattern=_SHA256_PATTERN)
+
+
+class MetadataResolutionIssueOwnerV3(StrEnum):
+    BUSINESS_RULE_REVIEW = "businessRuleReview"
+    METADATA_REVIEW = "metadataReview"
+    SQL_BOT = "sqlBot"
+
+
+MetadataOwnerWire = Annotated[MetadataResolutionIssueOwnerV3, Field(strict=False)]
+
+
+class MetadataResolutionIssueV3(_V3Base):
+    code: str = Field(pattern=r"^[A-Z][A-Z0-9_]*$", max_length=120)
+    owner: MetadataOwnerWire
+    impact: Literal["blocker", "warning"]
+    message: str = Field(min_length=1, max_length=2_000)
+
+
+def _validate_report_consistency(value: Any) -> Any:
+    """Post-build validation for report status/output consistency."""
+    if not isinstance(value, BindingResolutionReportV3):
+        return value
+    status = value.status
+    issues = value.issues
+    blockers = [i for i in issues if i.impact == "blocker"]
+    if status is ResolutionStatusV3.BLOCKED:
+        if not blockers:
+            raise ValueError("blocked report must contain at least one blocker issue")
+        if value.resolved_fields or value.resolved_entity_keys:
+            raise ValueError("blocked report must not carry resolved field/entity-key output")
+        if value.resolved_filters:
+            raise ValueError("blocked report must not carry resolved filters")
+        if value.resolved_joins:
+            raise ValueError("blocked report must not carry resolved joins")
+    elif blockers:
+        raise ValueError("metadataResolved report must not contain blocker issues")
+    return value
+
+
+class BindingResolutionReportV3(V3ReportModel):
+    """V3 metadata-resolution output report (M2 第四子任务).
+
+    Defines the output contract only. Does NOT compute hashes or
+    perform resolution. Future application service must independently
+    recompute and verify.
+
+    Internal consistency:
+    - blocked requires at least one blocker issue
+    - blocked must not carry resolvable output fields
+    - metadataResolved must not contain blocker issues
+    - metadataResolved must carry complete references and summaries
+    - executable is always false
+    """
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_nested_snake_case_fallback(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            for key in value:
+                if isinstance(key, str) and "_" in key:
+                    raise ValueError(f"snake_case key is not accepted: {key}")
+        return value
+
+    schema_version: Literal["1.0.0"]
+    status: ResolutionStatusWire
+    executable: Literal[False] = False
+    request_ref: RequestRefV3
+    project_ref: ProjectRefV3
+    context_ref: ContextRefV3
+    snapshot_ref: MetadataSnapshotRefV3
+    handoff_refs: HandoffRefsV3
+    resolution_hashes: ResolutionHashesV3
+    resolved_fields: list[ResolvedFieldV3] = Field(default_factory=list)
+    resolved_entity_keys: list[ResolvedEntityKeyV3] = Field(default_factory=list)
+    resolved_filters: list[ResolvedFilterV3] = Field(default_factory=list)
+    resolved_aggregation: ResolvedAggregationV3 | None = None
+    resolved_time_range: ResolvedTimeRangeV3 | None = None
+    resolved_joins: list[ResolvedJoinV3] = Field(default_factory=list)
+    usage_traceability_sha256: str = Field(pattern=_SHA256_PATTERN)
+    issues: list[MetadataResolutionIssueV3] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_report_consistency(self) -> BindingResolutionReportV3:
+        _validate_report_consistency(self)
+        return self
+
+
+class RequestRefV3(_V3Base):
+    request_id: str = Field(min_length=3, max_length=420)
+    rule_ref: RuleRefV3
+    payload_sha256: str = Field(pattern=_SHA256_PATTERN)

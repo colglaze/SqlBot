@@ -74,6 +74,8 @@ src/release_sql_bot/domain/sql_candidates_v3.py
   GenerateSqlCandidateRequestV3 / SqlTemplateCandidateV3 及嵌套引用模型
 src/release_sql_bot/domain/sql_validation_v3.py
   ValidateSqlCandidateRequestV3 / SqlStaticValidationReportV3
+src/release_sql_bot/application/validate_handoff_closure_v3.py
+  validate_handoff_closure_v3（内容闭包纯计算校验，M2 第一子任务）
 src/release_sql_bot/application/metadata_resolution_v3.py
   resolve_metadata_v3（Phase 2G V3 确定性解析）
 src/release_sql_bot/application/candidates_v3.py
@@ -86,9 +88,14 @@ src/release_sql_bot/infrastructure/database/mongodb_candidates_v3.py
   V3 insert-only 适配器（独立集合）
 tests/contract/test_project_bindings_v3_contract.py
 tests/contract/test_handoff_closure_v3_contract.py
+tests/contract/test_metadata_resolution_v3_contract.py
+tests/contract/test_metadata_resolution_v3_report_contract.py
 tests/contract/test_sql_candidates_v3_contract.py
+tests/unit/test_handoff_closure_validation_v3.py
+tests/unit/test_usage_traceability_v3.py
 tests/unit/test_metadata_resolution_v3.py
 tests/unit/test_candidates_v3.py
+tests/v3_metadata_support.py
 tests/unit/test_sql_validation_v3.py
 tests/unit/test_candidate_store_v3.py
 tests/fixtures/*.v3.synthetic.json（合成脱敏）
@@ -253,7 +260,12 @@ validate_approval_closure_v3(
 - 验证逻辑即 DEV §5.2 所列九个有序检查组；
 - **实际载荷哈希算法**：使用 `application/canonical.py` 的 `canonical_content_sha256` 约定——
   使用 camelCase、JSON 模式的完整模型内容；仅排除根级 `contentSha256`；不删除嵌套 sha256；
-  不排除 `approvalRef`、`approvedAt` 或其他业务字段；不复用 handoff 排除时间字段的特殊算法；
+  不排除 `approvalRef`、`approvedAt` 或其他业务字段；
+  approval/context/snapshot 使用 `canonical_content_sha256`，仅排除根级
+  `contentSha256` 自哈希字段；handoff payload 使用 `canonical_sha256`
+  对完整 `FactBindingRequestV3` payload 计算；handoff payload 本身不包含
+  `wrapper.createdAt` 等存储时间字段；两条路径都不根据字段名称递归删除时间、
+  `timeRange`、`approvedAt` 或其他业务字段；
   不改变输入对象，不静默排序或修复输入；
 - **信任边界**：`validate_approval_closure_v3` 成功只证明格式、实际载荷哈希、引用及声明状态
   内部一致；它**不能证明** `actorRef` 是真实批准者、人工批准确实发生或该批准当前仍有效；
@@ -423,7 +435,8 @@ HandoffClosureV3
   rule_version:            ≤260；必须 == payload.ruleRef.ruleVersion
   request_id:              ≤420；必须 == payload.requestId == <ruleVersion>#<factCode>
   fact_code:               与 batch wrapper 的 fact_code 逐字节一致
-  payload_sha256:          payload 排除时间字段后的 canonical SHA-256（上游规则）
+  payload_sha256:          使用既有 canonical_sha256 对完整 payload 计算；
+                          当前 payload 不含 handoff wrapper 的 createdAt 等存储时间字段
   batch_sha256:            所引用 batch 的 canonical SHA-256
   contract_schema_id:      urn:rulereader:fact-binding-request:3.0.0
   contract_schema_sha256:  2c5e4603…（冻结 Schema 副本哈希）
@@ -433,8 +446,27 @@ HandoffClosureV3
 
 内容闭包校验规则（纯计算，M2 实现；对 closure 自身）：
 
-1. **payload 闭合**：`canonical_sha256(closure.payload)`（排除时间字段，上游规则）==
-   `payload_sha256`；`request_id == payload.requestId == <rule_version>#<fact_code>`；
+实现于 `application/validate_handoff_closure_v3.py` 的
+`validate_handoff_closure_v3(closure: HandoffClosureV3) -> None`。
+成功返回 None，失败抛出 `HandoffClosureValidationErrorV3`（仅携带稳定 code）。
+
+按以下顺序 fail-fast，第一个失败即返回：
+
+| # | code | 检查内容 |
+|---|------|----------|
+| 1 | `HANDOFF_STRUCTURE_INVALID` | 重验 closure 结构和完整嵌套 V3 consumer 约束（防止 model_copy 绕过） |
+| 2 | `HANDOFF_SCHEMA_SOURCE_INVALID` | 冻结 Schema 加载器无法加载或来源校验失败 |
+| 3 | `HANDOFF_SCHEMA_REF_MISMATCH` | contractSchemaId/contractSchemaSha256 与加载器常量不一致 |
+| 4 | `HANDOFF_PAYLOAD_SCHEMA_INVALID` | payload 不符合随包冻结的 V3 JSON Schema |
+| 5 | `HANDOFF_IDENTITY_MISMATCH` | closure 与 payload 身份不一致 |
+| 6 | `HANDOFF_PAYLOAD_HASH_MISMATCH` | payload 内容哈希不一致 |
+
+校验细节：
+
+1. **payload 闭合**：使用既有 `canonical_sha256(closure.payload)` 对完整 payload 计算
+   （当前 payload 不含 handoff wrapper 的 createdAt 等存储时间字段），
+   重算值必须 == `payload_sha256`；
+   `request_id == payload.requestId == <rule_version>#<fact_code>`；
 2. `contract_schema_id`/`contract_schema_sha256` 与冻结 Schema 加载器常量一致；
 3. 客户端**自报的** `intake_status` 只是快照，本身不构成任何证明。
 
@@ -576,6 +608,8 @@ BindingResolutionReportV3
 
 - **traceability linkage（追溯链路）**：应用从权威 `FactBindingRequestV3.usages` 确定性复制
   完整六元组并计算 canonical 摘要；报告、候选、存储记录都必须能追溯到完整 usages；
+- **实现**：`application/usage_traceability_v3.py` 的
+  `compute_usage_traceability_sha256_v3(usages: Sequence[FactUsageV3]) -> str`；
 - 计算步骤：对每条 usage 投影出恰好六个 camelCase 字段（`stage`/`ruleCode`/`priority`/
   `conditionId`/`conditionPath`/`outcome`）→ 按完整稳定排序键排序——`stage` 使用明确业务
   顺序 `stateGuards → prerequisites → eligibility → postGates → exclusions`，其后依次
@@ -584,8 +618,9 @@ BindingResolutionReportV3
   同四元组前缀下剩余字段必须参与，保证全序唯一确定）→ 对排序后的六字段对象数组按既有
   `canonical_sha256` 规则（UTF-8、`sort_keys=True`、紧凑 separators、`ensure_ascii=False`、
   禁 NaN）计算；
-- `evidenceIds` 不进入本摘要（仍通过 `payloadSha256` 与 handoff closure 追溯）；时间字段
-  不进入；相同 `conditionId` 的多个不同 usage 全部保留、全部参与摘要；
+- 先检查上游四元组唯一性 `(stage, ruleCode, conditionId, conditionPath)`，完全相同则拒绝；
+  `evidenceIds` 不进入本摘要（仍通过 `payloadSha256` 与 handoff closure 追溯）；
+  相同 `conditionId` 的多个不同 usage 全部保留、全部参与摘要；
 - **上游顺序语义核查（2026-09-06）**：冻结的上游 Schema 对 `usages` 数组只声明
   `minItems: 1`，无 `uniqueItems`、无任何顺序语义；首个命中语义由 `priority` 字段承载。
   若上游未来明确 usages 数组原顺序具有额外业务语义，**必须停止排序并登记“保留原顺序还是
@@ -828,15 +863,18 @@ REQ/BIZ/DEV 已由用户明确批准并落档；M0 规划批次已进入提交 `
 - 失败语义：任何基线与登记值不符（尤其 Schema SHA-256 变化）→ 停止，另立评审。
 - 测试范围：只读检查命令，无新增测试。
 
-### M1：V3 授权上下文、快照与 handoff 闭包契约（`in_progress`）
+### M1：V3 授权上下文、快照与 handoff 闭包契约（`completed`，2026-09-10）
 
 - 前置条件：M0 收口（上游 V3 契约已提交、SHA-256 复核一致）；本 REQ/BIZ/DEV 已批准。
-- **当前状态**：M1 已启动（`in_progress`），首个契约子任务及审核修复已完成：
-  - **已完成**：`project_bindings_v3.py` 契约模型及 `test_project_bindings_v3_contract.py`（76 项定向契约测试通过；全量 500 passed）；
-  - **已完成**：`validate_approval_closure_v3.py` 九组纯计算校验及对应测试（本轮实施）；
+- **当前状态（2026-09-10）**：M1 已完成（`completed`），五个实现文件全部完成，全量 610 passed：
+  - **已完成**：`project_bindings_v3.py` 契约模型及 `test_project_bindings_v3_contract.py`（110 项定向契约测试，含 6 项补充的批准校验精确反例、生命周期隔离证据）；
+  - **已完成**：`validate_approval_closure_v3.py` 九组纯计算校验及对应测试；
+  - **已完成**：`handoff_closure_v3.py`（`HandoffClosureV3` + `RepositoryVerifiedHandoffV3`）及
+    `test_handoff_closure_v3_contract.py`（76 项契约测试，含 verified 构造边界、V2 完整 fixture 拒绝、字段边界参数化）；
   - **审核修复**：已修复 contextRef 类型错误、授权身份唯一性遗漏、requestIds 元素缺少下界、异常 code 未受约束四项缺陷；
-  - **后续**：`handoff_closure_v3.py` 契约及 `test_handoff_closure_v3_contract.py`；
-  - 全部 M1 DoD 满足后才能将 M1 标记 completed。
+  - **审核修复（2026-09-10）**：`RepositoryVerifiedHandoffV3` 构造器已改为无条件 `TypeError`；
+    删除 `HandoffClosureV3` 中 M2 跨字段身份比对；移除领域层重复常量；补齐边界测试和生命周期隔离证据；
+  - M1 DoD 逐项核对见 [PROG-20260910](../progress/PROG-20260910.md)。M1 已标记 completed，本轮未提交，待代码审核。
 - **M1 允许的五个实现文件固定为：**
   1. `src/release_sql_bot/domain/project_bindings_v3.py`（context + snapshot + grants + approval +
      `ApprovalClosureValidationErrorV3` 异常，定义在同文件）
@@ -876,11 +914,42 @@ REQ/BIZ/DEV 已由用户明确批准并落档；M0 规划批次已进入提交 `
 ### M2：V3 元数据解析（Phase 2G V3）
 
 - 前置条件：M1 完成。
-- 内容：`application/metadata_resolution_v3.py`；`ResolveMetadataRequestV3`/
-  `BindingResolutionReportV3`；`HandoffClosureV3` 内容闭包校验实现（5.1 节闭包规则）。
+- 状态：`in_progress`（已完成内容闭包校验和 usage 追溯摘要；解析请求/报告及八步授权解析尚未实现）。
+- 已完成子任务：
+  - `application/validate_handoff_closure_v3.py`（内容闭包纯计算校验，六组有序 fail-fast 检查）；
+    `domain/handoff_closure_v3.py` 增加 `HandoffClosureValidationErrorV3`；
+    `tests/unit/test_handoff_closure_validation_v3.py`（36 项单元测试通过）。
+  - `application/usage_traceability_v3.py`（`compute_usage_traceability_sha256_v3`，
+    六元组投影 + 完整稳定排序键 + 四元组重复拒绝）；
+    `tests/unit/test_usage_traceability_v3.py`（20 项单元测试通过，含排序不变性、
+    同 conditionId 多 usage 合法性、输入不可变）。
+  - `domain/project_bindings_v3.py` 增加 `ResolveMetadataRequestV3`
+    （七顶层字段：schemaVersion、projectRef、handoffClosure、bindingRequest、
+    projectContext、metadataSnapshot、approvalRecord）；
+    `tests/v3_metadata_support.py`（可复用自洽 happy-path 合成夹具，
+    从实际 V3 fixture 派生 ruleRef/requestId/实体键授权，
+    两次闭包校验器均通过）；
+    `tests/contract/test_metadata_resolution_v3_contract.py`（34 项契约测试通过，
+    含 camelCase/extra=forbid/strict、缺字段、snake_case、类型强制、
+    V2 拒绝、bindingGapReport/repositoryVerified 拒绝、结构合法但语义不一致允许构造、
+    夹具自洽性证据、完整 ruleRef/projectRef 相等、实体键授权引用闭合、
+    重复 relation/column 诊断）。
+  - `domain/project_bindings_v3.py` 增加 `BindingResolutionReportV3`
+    （schemaVersion、status、executable=false、requestRef、projectRef、
+    contextRef、snapshotRef、handoffRefs、resolutionHashes、
+    resolvedFields/EntityKeys/Filters/Aggregation/TimeRange/Joins、
+    usageTraceabilitySha256、issues；blocked/metadataResolved 内部一致性校验）；
+    `tests/v3_metadata_support.py` 新增报告合成夹具；
+    `tests/contract/test_metadata_resolution_v3_report_contract.py`（34 项契约测试通过，
+    含两种状态往返、版本/状态/executable 约束、缺字段、snake_case、类型强制、
+    SHA-256 格式、blocked 必须含 blocker、blocked 不得携带部分输出、
+    metadataResolved 不得含阻断 issue、空 filters/aggregation/timeRange/join 合法、
+    evidence 引用无损、无执行/审核/SQL 字段）。
+  - 剩余工作：`application/metadata_resolution_v3.py`；第 5.3 节八步确定性解析。
 - DoD：第 5.3 节八步确定性解析全部有 happy/blocked 测试；5.1 节内容闭包规则全部有正反
-  测试；`usage_traceability_sha256` 按 5.4 节规范可独立重算（含排序不变性与四元组重复
-  拒绝）；纯计算证明（解析函数无仓储/provider 注入点）且报告明确 `metadataResolved` 不
+  测试（已完成）；usage 追溯摘要排序、重复拒绝和输入重排测试已完成；
+  `ResolveMetadataRequestV3` 和 `BindingResolutionReportV3` 契约测试已完成；
+  纯计算证明（解析函数无仓储/provider 注入点）且报告明确 `metadataResolved` 不
   构成真实仓储证明。
 - 失败语义：closure 或任一门禁失败 → `blocked` 报告，携带既有 owner 分类 issue；纯解析
   路径本无 provider/store 注入点。

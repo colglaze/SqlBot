@@ -806,19 +806,54 @@ def test_nested_entity_key_request_id_boundary() -> None:
 
 
 def test_new_context_version_does_not_modify_old_input() -> None:
-    """Constructing a newer context from a copied payload must not mutate the original."""
+    """Constructing a newer context from a copied payload must not mutate the original.
+
+    M1 只验证：构造新版本不修改旧模型和旧输入（包括旧 status）。
+    生命周期事件存储、active pointer 和数据库不可变写入尚未实现。
+    """
     old_payload = _context_payload()
     old_model = ProjectBindingContextV3.model_validate(old_payload)
     old_serialized = old_model.model_dump(by_alias=True, mode="json")
+    old_status = old_model.status
 
     # Build a new version from a copy of the old payload
     new_payload = deepcopy(old_payload)
-    new_payload["contextVersion"] = 2
-    ProjectBindingContextV3.model_validate(new_payload)
+    new_payload["contextVersion"] = old_model.context_version + 1
+    new_model = ProjectBindingContextV3.model_validate(new_payload)
 
-    # Old model and its original serialization are unchanged
+    # New version number is old + 1
+    assert new_model.context_version == old_model.context_version + 1
+
+    # Old model and its original serialization are unchanged (including status)
     assert old_model.context_version == 1
+    assert old_model.status == old_status
     assert old_model.model_dump(by_alias=True, mode="json") == old_serialized
+
+    # New model has different serialization
+    assert new_model.model_dump(by_alias=True, mode="json") != old_serialized
+
+
+def test_context_rejects_extra_lifecycle_fields() -> None:
+    """Lifecycle fields (lifecycleEvents, activePointer) cannot mix into the payload.
+
+    These are NOT part of the M1 contract and must be rejected by extra=forbid.
+    """
+    payload = _context_payload()
+    payload["lifecycleEvents"] = [{"eventId": "ev-1", "type": "created"}]
+    with pytest.raises(ValidationError) as exc_info:
+        ProjectBindingContextV3.model_validate(payload)
+    errors = exc_info.value.errors()
+    assert any("lifecycleEvents" in str(err["loc"]) for err in errors)
+
+
+def test_context_rejects_active_pointer_field() -> None:
+    """activePointer is not part of the M1 context contract and must be rejected."""
+    payload = _context_payload()
+    payload["activePointer"] = {"contextId": "ctx-2", "contextVersion": 2}
+    with pytest.raises(ValidationError) as exc_info:
+        ProjectBindingContextV3.model_validate(payload)
+    errors = exc_info.value.errors()
+    assert any("activePointer" in str(err["loc"]) for err in errors)
 
 
 # ===================================================================
@@ -1200,6 +1235,133 @@ def test_group5_snapshot_tampered_but_old_hash_kept() -> None:
     with pytest.raises(ApprovalClosureValidationErrorV3) as exc_info:
         validate_approval_closure_v3(context, bad_snapshot, approval)
     assert exc_info.value.code == "APPROVAL_SNAPSHOT_REF_MISMATCH"
+
+
+def test_group2_snapshot_policy_version_mismatch() -> None:
+    """metadata_snapshot.approvalRef.policyVersion alone differs."""
+    context, snapshot, approval = _valid_closure()
+    snap_wire = snapshot.model_dump(by_alias=True, mode="json")
+    snap_wire["approvalRef"]["policyVersion"] = "wrong-snap-policy"
+    snap_wire["contentSha256"] = "0" * 64
+    bad_snapshot = GovernedMetadataSnapshotV3.model_validate(snap_wire)
+    snap_wire["contentSha256"] = canonical_content_sha256(bad_snapshot)
+    bad_snapshot = GovernedMetadataSnapshotV3.model_validate(snap_wire)
+
+    # Update context metadataSnapshotRef to point to the new snapshot hash
+    ctx_wire = context.model_dump(by_alias=True, mode="json")
+    ctx_wire["metadataSnapshotRef"]["sha256"] = snap_wire["contentSha256"]
+    ctx_wire["contentSha256"] = "0" * 64
+    bad_context = ProjectBindingContextV3.model_validate(ctx_wire)
+    ctx_wire["contentSha256"] = canonical_content_sha256(bad_context)
+    bad_context = ProjectBindingContextV3.model_validate(ctx_wire)
+
+    appr_wire = approval.model_dump(by_alias=True, mode="json")
+    appr_wire["contextRef"]["sha256"] = ctx_wire["contentSha256"]
+    appr_wire["snapshotRef"]["sha256"] = snap_wire["contentSha256"]
+    appr_wire["contentSha256"] = "0" * 64
+    bad_approval = ApprovalRecordV3.model_validate(appr_wire)
+    appr_wire["contentSha256"] = canonical_content_sha256(bad_approval)
+    bad_approval = ApprovalRecordV3.model_validate(appr_wire)
+
+    with pytest.raises(ApprovalClosureValidationErrorV3) as exc_info:
+        validate_approval_closure_v3(bad_context, bad_snapshot, bad_approval)
+    assert exc_info.value.code == "APPROVAL_POLICY_MISMATCH"
+
+
+def test_group2_approval_record_policy_version_mismatch() -> None:
+    """approval_record.policyVersion alone differs."""
+    context, snapshot, approval = _valid_closure()
+    appr_wire = approval.model_dump(by_alias=True, mode="json")
+    appr_wire["policyVersion"] = "wrong-approval-policy"
+    appr_wire["contentSha256"] = "0" * 64
+    bad_approval = ApprovalRecordV3.model_validate(appr_wire)
+    appr_wire["contentSha256"] = canonical_content_sha256(bad_approval)
+    bad_approval = ApprovalRecordV3.model_validate(appr_wire)
+
+    with pytest.raises(ApprovalClosureValidationErrorV3) as exc_info:
+        validate_approval_closure_v3(context, snapshot, bad_approval)
+    assert exc_info.value.code == "APPROVAL_POLICY_MISMATCH"
+
+
+def test_group4_context_ref_context_version_mismatch() -> None:
+    """approval_record.contextRef.contextVersion alone differs."""
+    context, snapshot, approval = _valid_closure()
+    appr_wire = approval.model_dump(by_alias=True, mode="json")
+    appr_wire["contextRef"]["contextVersion"] = 999
+    appr_wire["contentSha256"] = "0" * 64
+    bad_approval = ApprovalRecordV3.model_validate(appr_wire)
+    appr_wire["contentSha256"] = canonical_content_sha256(bad_approval)
+    bad_approval = ApprovalRecordV3.model_validate(appr_wire)
+
+    with pytest.raises(ApprovalClosureValidationErrorV3) as exc_info:
+        validate_approval_closure_v3(context, snapshot, bad_approval)
+    assert exc_info.value.code == "APPROVAL_CONTEXT_REF_MISMATCH"
+
+
+def test_group5_snapshot_ref_snapshot_version_mismatch() -> None:
+    """Only approval_record.snapshotRef.snapshotVersion differs.
+
+    The context and snapshot are unchanged (their references still match each
+    other). Only the approval record's snapshotRef.snapshotVersion is altered,
+    and the approval record's self-content hash is recomputed. Group 5
+    (snapshotRef ID/version mismatch against the actual snapshot) fires
+    before group 9 (context.metadataSnapshotRef vs approval_record.snapshotRef).
+    """
+    context, snapshot, approval = _valid_closure()
+    appr_wire = approval.model_dump(by_alias=True, mode="json")
+    appr_wire["snapshotRef"]["snapshotVersion"] = 999
+    appr_wire["contentSha256"] = "0" * 64
+    bad_approval = ApprovalRecordV3.model_validate(appr_wire)
+    appr_wire["contentSha256"] = canonical_content_sha256(bad_approval)
+    bad_approval = ApprovalRecordV3.model_validate(appr_wire)
+
+    with pytest.raises(ApprovalClosureValidationErrorV3) as exc_info:
+        validate_approval_closure_v3(context, snapshot, bad_approval)
+    assert exc_info.value.code == "APPROVAL_SNAPSHOT_REF_MISMATCH"
+
+
+def test_group9_context_metadata_snapshot_ref_snapshot_version_mismatch() -> None:
+    """context.metadataSnapshotRef.snapshotVersion differs from approval_record.snapshotRef."""
+    context, snapshot, approval = _valid_closure()
+    ctx_wire = context.model_dump(by_alias=True, mode="json")
+    ctx_wire["metadataSnapshotRef"]["snapshotVersion"] = 999
+    ctx_wire["contentSha256"] = "0" * 64
+    bad_context = ProjectBindingContextV3.model_validate(ctx_wire)
+    ctx_wire["contentSha256"] = canonical_content_sha256(bad_context)
+    bad_context = ProjectBindingContextV3.model_validate(ctx_wire)
+
+    appr_wire = approval.model_dump(by_alias=True, mode="json")
+    appr_wire["contextRef"]["sha256"] = ctx_wire["contentSha256"]
+    appr_wire["contentSha256"] = "0" * 64
+    bad_approval = ApprovalRecordV3.model_validate(appr_wire)
+    appr_wire["contentSha256"] = canonical_content_sha256(bad_approval)
+    bad_approval = ApprovalRecordV3.model_validate(appr_wire)
+
+    with pytest.raises(ApprovalClosureValidationErrorV3) as exc_info:
+        validate_approval_closure_v3(bad_context, snapshot, bad_approval)
+    assert exc_info.value.code == "APPROVAL_SNAPSHOT_BINDING_MISMATCH"
+
+
+def test_group9_context_metadata_snapshot_ref_sha256_mismatch() -> None:
+    """context.metadataSnapshotRef.sha256 differs from approval_record.snapshotRef.sha256."""
+    context, snapshot, approval = _valid_closure()
+    ctx_wire = context.model_dump(by_alias=True, mode="json")
+    ctx_wire["metadataSnapshotRef"]["sha256"] = "f" * 64
+    ctx_wire["contentSha256"] = "0" * 64
+    bad_context = ProjectBindingContextV3.model_validate(ctx_wire)
+    ctx_wire["contentSha256"] = canonical_content_sha256(bad_context)
+    bad_context = ProjectBindingContextV3.model_validate(ctx_wire)
+
+    appr_wire = approval.model_dump(by_alias=True, mode="json")
+    appr_wire["contextRef"]["sha256"] = ctx_wire["contentSha256"]
+    appr_wire["contentSha256"] = "0" * 64
+    bad_approval = ApprovalRecordV3.model_validate(appr_wire)
+    appr_wire["contentSha256"] = canonical_content_sha256(bad_approval)
+    bad_approval = ApprovalRecordV3.model_validate(appr_wire)
+
+    with pytest.raises(ApprovalClosureValidationErrorV3) as exc_info:
+        validate_approval_closure_v3(bad_context, snapshot, bad_approval)
+    assert exc_info.value.code == "APPROVAL_SNAPSHOT_BINDING_MISMATCH"
 
 
 def test_group6_approval_self_hash_mismatch() -> None:

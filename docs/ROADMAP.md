@@ -167,8 +167,21 @@
   分工：`businessRuleReview` 负责上游业务表达及新版本 catalog/rules/handoff；`metadataReview`
   负责已确认物理事实到版本化 context/snapshot/grants 的转换与批准；SqlBot M1 只负责契约模型
   和批准内容闭包纯计算校验。M0 已因规划文档批准并落档而收口为 `completed`；M1 已启动（`in_progress`），
-  首个子任务及审核修复已完成，九组批准校验子任务已完成（102 项定向契约测试、526 项全量测试）；
-  M1 仍为 `in_progress`。
+  首个子任务及审核修复已完成，九组批准校验子任务已完成；handoff 契约子任务已完成（2026-09-10）：
+  `handoff_closure_v3.py`（`HandoffClosureV3` + `RepositoryVerifiedHandoffV3`，构造器已改为无条件
+  TypeError）、`test_handoff_closure_v3_contract.py`（76 项，含 verified 构造边界/V2 完整 fixture 拒绝/
+  字段边界参数化/生命周期隔离）、`test_project_bindings_v3_contract.py`（110 项，含 6 项精确反例）；
+  全量 610 passed。
+  M1 已标记 `completed`（2026-09-10），未提交。
+- M2 第一子任务已完成（2026-09-11）：`validate_handoff_closure_v3.py`（内容闭包校验，
+  六组有序 fail-fast 检查，36 项单元测试）。
+- M2 第二子任务已完成（2026-09-11）：`usage_traceability_v3.py`（六元组追溯摘要，
+  20 项单元测试）。
+- M2 第三子任务已完成（2026-09-11）：`ResolveMetadataRequestV3` 请求契约
+  （domain/project_bindings_v3.py，34 项契约测试）。
+- M2 第四子任务已完成（2026-09-11）：`BindingResolutionReportV3` 报告契约
+  （domain/project_bindings_v3.py，34 项契约测试）；全量 734 passed。
+  M2 仍为 `in_progress`，剩余：八步授权解析。
 
 ## Phase 5：受限 SQL Server 验证
 

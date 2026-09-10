@@ -3,7 +3,7 @@
 `docs/` 是项目业务意图、技术方案、数据契约、决策和进度的事实来源。当前实现以事实级 Agent 2 基线为准。
 
 ## 阅读顺序
-1. [当前进度](progress/PROG-20260909.md)
+1. [当前进度](progress/PROG-20260911.md)
 5. [FactBindingRequest 3.0.0 下游管线对齐需求](requirements/REQ-20260906-04-v3-downstream-pipeline-alignment.md)
 6. [V3 下游管线权威边界与复用决策](decisions/BIZ-20260906-03-v3-downstream-authority-boundary.md)
 7. [FactBindingRequest 3.0.0 下游管线对齐设计与实施计划](architecture/DEV-20260906-04-v3-downstream-pipeline-alignment.md)
@@ -94,6 +94,7 @@
 
 ### 技术与交付
 
+- [PROG-20260910：V3 M1 最后切片（handoff 契约、批准校验测试补缺和进度收口）](progress/PROG-20260910.md)
 - [PROG-20260909：T0 来源登记与 V3 后续实施条件规划](progress/PROG-20260909.md)
 - [BUG-20260908-01：V3 下游契约来源登记与上游提交树不一致（行尾 / 提交状态）](bugs/BUG-20260908-01-v3-downstream-contract-source-hash-normalization.md)
 - [BUG-20260908-02：V3 上游已归档交付与主来源业务语义存在可复现差距](bugs/BUG-20260908-02-v3-upstream-fact-catalog-contract-gaps.md)
