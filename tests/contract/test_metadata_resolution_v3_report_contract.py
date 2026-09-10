@@ -246,14 +246,20 @@ def test_resolved_entity_key_preserves_evidence() -> None:
     assert "ev-fact-declaration" in report.resolved_entity_keys[0].evidence_ids
 
 
-def test_same_condition_id_different_usage_not_merged() -> None:
-    """Same conditionId in different stages must produce separate usages."""
+def test_caller_preserved_usage_traceability_sha256() -> None:
+    """Report contract preserves caller-provided digest without recomputation.
+
+    The report contract must accept and return the exact 64-char hex
+    digest supplied by the caller. It does NOT recompute the digest
+    from usage data; that is the caller's responsibility.
+    """
     wire = valid_metadata_resolved_report_v3_wire()
+    expected = "b" * 64
+    wire["usageTraceabilitySha256"] = expected
     report = BindingResolutionReportV3.model_validate(wire)
-    # The usageTraceabilitySha256 is a single digest; the report
-    # structure preserves the full sextuplet via the digest, not
-    # by merging conditionIds.
-    assert len(report.usage_traceability_sha256) == 64
+    assert report.usage_traceability_sha256 == expected
+    dumped = report.model_dump(by_alias=True, mode="json")
+    assert dumped["usageTraceabilitySha256"] == expected
 
 
 # ===================================================================
@@ -302,3 +308,228 @@ def test_module_does_not_import_v2_or_infrastructure() -> None:
     assert "sqlglot" not in source.lower()
     assert "os.environ" not in source
     assert "getenv" not in source
+
+
+# ===================================================================
+# Section 12: Blocked status rejects all six resolved outputs
+# ===================================================================
+
+
+def _valid_aggregation_compute() -> dict[str, object]:
+    return {
+        "mode": "compute",
+        "function": "sum",
+        "inputFieldIds": ["factValue"],
+        "groupByFieldIds": [],
+        "distinct": False,
+        "evidenceIds": ["ev-query-requirement"],
+    }
+
+
+def _valid_aggregation_none() -> dict[str, object]:
+    return {
+        "mode": "none",
+        "function": None,
+        "inputFieldIds": [],
+        "groupByFieldIds": [],
+        "distinct": None,
+        "evidenceIds": ["ev-query-requirement"],
+    }
+
+
+def _valid_time_range_between() -> dict[str, object]:
+    return {
+        "mode": "between",
+        "timeFieldId": "syntheticTime",
+        "timeSchemaName": "dbo",
+        "timeRelationName": "synthetic_table",
+        "timeColumnName": "synthetic_time",
+        "evidenceIds": ["ev-query-requirement"],
+    }
+
+
+def _valid_time_range_none() -> dict[str, object]:
+    return {
+        "mode": "none",
+        "timeFieldId": None,
+        "timeSchemaName": None,
+        "timeRelationName": None,
+        "timeColumnName": None,
+        "evidenceIds": ["ev-query-requirement"],
+    }
+
+
+def _valid_resolved_field() -> dict[str, object]:
+    return {
+        "fieldId": "factValue",
+        "role": "value",
+        "authorizationId": "fba-value",
+        "columnGrantId": "colgrant-value",
+        "schemaName": "dbo",
+        "relationName": "synthetic_table",
+        "columnName": "synthetic_value",
+        "evidenceIds": ["ev-fact-declaration"],
+    }
+
+
+def _valid_resolved_entity_key() -> dict[str, object]:
+    return {
+        "parameterName": "syntheticKey",
+        "fieldId": "syntheticKey",
+        "authorizationId": "eka-1",
+        "columnGrantId": "colgrant-key",
+        "schemaName": "dbo",
+        "relationName": "synthetic_table",
+        "columnName": "synthetic_key",
+        "evidenceIds": ["ev-fact-declaration"],
+    }
+
+
+def _valid_resolved_filter() -> dict[str, object]:
+    return {
+        "filterId": "statusFilter",
+        "fieldId": "statusCode",
+        "schemaName": "dbo",
+        "relationName": "synthetic_table",
+        "columnName": "status_code",
+        "evidenceIds": ["ev-query-requirement"],
+    }
+
+
+def _valid_resolved_join() -> dict[str, object]:
+    return {
+        "joinGrantId": "join-1",
+        "leftSchemaName": "dbo",
+        "leftRelationName": "t1",
+        "leftColumnName": "c1",
+        "rightSchemaName": "dbo",
+        "rightRelationName": "t2",
+        "rightColumnName": "c2",
+        "joinType": "inner",
+        "evidenceIds": ["ev-query-requirement"],
+    }
+
+
+@pytest.mark.parametrize(
+    "field_name,inject",
+    [
+        ("resolvedFields", [_valid_resolved_field()]),
+        ("resolvedEntityKeys", [_valid_resolved_entity_key()]),
+        ("resolvedFilters", [_valid_resolved_filter()]),
+        ("resolvedJoins", [_valid_resolved_join()]),
+    ],
+)
+def test_blocked_rejects_each_list_field(field_name: str, inject: list) -> None:
+    """blocked must not carry any resolved list output."""
+    wire = valid_blocked_report_v3_wire()
+    wire[field_name] = inject
+    original = deepcopy(wire)
+    with pytest.raises(ValidationError, match="blocked report"):
+        BindingResolutionReportV3.model_validate(wire)
+    assert wire == original, "input wire must not be mutated on failure"
+
+
+def test_blocked_rejects_resolved_aggregation_compute() -> None:
+    """blocked must reject resolvedAggregation with mode=compute."""
+    wire = valid_blocked_report_v3_wire()
+    wire["resolvedAggregation"] = _valid_aggregation_compute()
+    original = deepcopy(wire)
+    with pytest.raises(ValidationError, match="blocked report"):
+        BindingResolutionReportV3.model_validate(wire)
+    assert wire == original, "input wire must not be mutated on failure"
+
+
+def test_blocked_rejects_resolved_aggregation_none() -> None:
+    """blocked must reject resolvedAggregation even when mode=none.
+
+    mode=none is still a non-None resolution result object; blocked
+    must reject it explicitly rather than silently clearing it.
+    """
+    wire = valid_blocked_report_v3_wire()
+    wire["resolvedAggregation"] = _valid_aggregation_none()
+    original = deepcopy(wire)
+    with pytest.raises(ValidationError, match="blocked report"):
+        BindingResolutionReportV3.model_validate(wire)
+    assert wire == original, "input wire must not be mutated on failure"
+
+
+def test_blocked_rejects_resolved_time_range_between() -> None:
+    """blocked must reject resolvedTimeRange with mode=between."""
+    wire = valid_blocked_report_v3_wire()
+    wire["resolvedTimeRange"] = _valid_time_range_between()
+    original = deepcopy(wire)
+    with pytest.raises(ValidationError, match="blocked report"):
+        BindingResolutionReportV3.model_validate(wire)
+    assert wire == original, "input wire must not be mutated on failure"
+
+
+def test_blocked_rejects_resolved_time_range_none() -> None:
+    """blocked must reject resolvedTimeRange even when mode=none.
+
+    mode=none is still a non-None resolution result object; blocked
+    must reject it explicitly rather than silently clearing it.
+    """
+    wire = valid_blocked_report_v3_wire()
+    wire["resolvedTimeRange"] = _valid_time_range_none()
+    original = deepcopy(wire)
+    with pytest.raises(ValidationError, match="blocked report"):
+        BindingResolutionReportV3.model_validate(wire)
+    assert wire == original, "input wire must not be mutated on failure"
+
+
+# ===================================================================
+# Section 13: Report input format constraints (strict + no strip)
+# ===================================================================
+
+
+def test_rejects_usage_traceability_sha256_with_leading_space() -> None:
+    wire = valid_metadata_resolved_report_v3_wire()
+    wire["usageTraceabilitySha256"] = " " + "c" * 64
+    with pytest.raises(ValidationError):
+        BindingResolutionReportV3.model_validate(wire)
+
+
+def test_rejects_usage_traceability_sha256_with_trailing_space() -> None:
+    wire = valid_metadata_resolved_report_v3_wire()
+    wire["usageTraceabilitySha256"] = "c" * 64 + " "
+    with pytest.raises(ValidationError):
+        BindingResolutionReportV3.model_validate(wire)
+
+
+def test_rejects_usage_traceability_sha256_with_newline() -> None:
+    wire = valid_metadata_resolved_report_v3_wire()
+    wire["usageTraceabilitySha256"] = "c" * 64 + "\n"
+    with pytest.raises(ValidationError):
+        BindingResolutionReportV3.model_validate(wire)
+
+
+def test_rejects_issues_as_tuple() -> None:
+    """issues must be a list; a tuple must be rejected under strict mode."""
+    wire = valid_blocked_report_v3_wire()
+    wire["issues"] = (wire["issues"][0],)
+    with pytest.raises(ValidationError):
+        BindingResolutionReportV3.model_validate(wire)
+
+
+def test_rejects_resolved_fields_as_tuple() -> None:
+    """resolvedFields must be a list; a tuple must be rejected under strict mode."""
+    wire = valid_metadata_resolved_report_v3_wire()
+    wire["resolvedFields"] = (wire["resolvedFields"][0],)
+    with pytest.raises(ValidationError):
+        BindingResolutionReportV3.model_validate(wire)
+
+
+def test_legal_list_issues_still_pass() -> None:
+    """Legal list form continues to validate after strict mode."""
+    wire = valid_blocked_report_v3_wire()
+    report = BindingResolutionReportV3.model_validate(wire)
+    assert isinstance(report.issues, list)
+    assert len(report.issues) == 1
+
+
+def test_legal_list_resolved_fields_still_pass() -> None:
+    """Legal list form continues to validate after strict mode."""
+    wire = valid_metadata_resolved_report_v3_wire()
+    report = BindingResolutionReportV3.model_validate(wire)
+    assert isinstance(report.resolved_fields, list)
+    assert len(report.resolved_fields) == 1

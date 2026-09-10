@@ -310,7 +310,7 @@ uv run pytest
 - [双 Agent 职责决策](docs/decisions/BIZ-20260819-01-agent2-role-alignment.md)
 - [事实绑定技术方案](docs/architecture/DEV-20260819-01-fact-binding-contract.md)
 - [阶段路线图](docs/ROADMAP.md)
-- [当前进度](docs/progress/PROG-20260909.md)
+- [当前进度](docs/progress/PROG-20260911.md)
 
 旧的“整规则异常集合 SQL”文档作为历史记录保留，不再指导 SQL 生成；其中规则 JSON Schema 1.0
 只被复用于确定性的规则读取校验、canonicalization、哈希和 diff。

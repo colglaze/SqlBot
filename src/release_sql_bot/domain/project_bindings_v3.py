@@ -516,7 +516,18 @@ class MetadataResolutionIssueV3(_V3Base):
 
 
 def _validate_report_consistency(value: Any) -> Any:
-    """Post-build validation for report status/output consistency."""
+    """Post-build validation for report status/output consistency.
+
+    When status=blocked:
+    - four list fields must be empty
+    - resolvedAggregation must be None
+    - resolvedTimeRange must be None
+    - at least one blocker issue is required
+    - executable is always False (enforced by Literal)
+
+    Explicit rejection: even mode="none" objects are non-None resolution
+    results and must be rejected, not silently cleared or repaired.
+    """
     if not isinstance(value, BindingResolutionReportV3):
         return value
     status = value.status
@@ -531,6 +542,10 @@ def _validate_report_consistency(value: Any) -> Any:
             raise ValueError("blocked report must not carry resolved filters")
         if value.resolved_joins:
             raise ValueError("blocked report must not carry resolved joins")
+        if value.resolved_aggregation is not None:
+            raise ValueError("blocked report must not carry resolved aggregation")
+        if value.resolved_time_range is not None:
+            raise ValueError("blocked report must not carry resolved time range")
     elif blockers:
         raise ValueError("metadataResolved report must not contain blocker issues")
     return value
@@ -549,7 +564,24 @@ class BindingResolutionReportV3(V3ReportModel):
     - metadataResolved must not contain blocker issues
     - metadataResolved must carry complete references and summaries
     - executable is always false
+
+    Input format constraints (DEV §5.4 补全):
+    - strict=True: 禁止类型强转（如 tuple→list、int→str），确保
+      报告输入格式精确符合契约，避免静默规范化；
+    - str_strip_whitespace=False: 禁止自动去除字符串两端空白，
+      确保 SHA-256 等精确字段的格式约束有效。
+    仅在本类覆盖，不影响共享 V3ReportModel 及既有 intake 报告。
     """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        serialize_by_alias=True,
+        extra="forbid",
+        frozen=True,
+        strict=True,
+        str_strip_whitespace=False,
+    )
 
     @model_validator(mode="before")
     @classmethod

@@ -13,11 +13,15 @@
   [DEV-20260827-01](DEV-20260827-01-sql-ast-safety-gate.md)、
   [DEV-20260906-01](DEV-20260906-01-v2-candidate-persistence.md)
 
-> 本文档只做规划，本轮任务不实现任何 V3 下游代码。文中全部契约、模块与测试均为后续实施
-> 对象；M0 已收口（`completed`）：上游 commit 与来源登记已于 2026-09-09 完成（提交 `e3b00b2`），
-> M0 规划批次已进入提交 `61a377f`，五项设计已由用户批准并落档；M1 已启动（`in_progress`）；
-> 首个项目授权/快照/批准记录契约子任务及其审核修复已完成，后续仍受 M1 剩余范围约束。
-> 历史观察见第 13 节。
+> 本文档记录已批准设计及实施状态（设计本身不因实施进度而变更）。
+> M0 已收口（`completed`）：上游 commit 与来源登记已于 2026-09-09 完成（提交 `e3b00b2`），
+> M0 规划批次已进入提交 `61a377f`，五项设计已由用户批准并落档。
+> M1 已完成（`completed`）。
+> M2 为 `in_progress`：已完成内容闭包校验、usage 追溯摘要、ResolveMetadataRequestV3、
+> BindingResolutionReportV3、报告契约审核修复及输入门禁内部辅助函数
+> （`_validate_resolution_input_v3`：结构重验 + 六步内容/范围门禁）；
+> 剩余八步确定性解析（§5.3 第 2～8 步）和报告组装。
+> 历史观察见第 13 节；当前状态见第 12 节及最新 PROG。
 
 ## 1. 设计结论
 
@@ -552,6 +556,103 @@ provider/store；issue code 不包含私有标识符或载荷内容。M3 在 pro
 全部为纯计算，不访问 SQL Server、仓储或 provider（`HandoffClosureV3` 的内容闭包校验是纯
 计算；仓储重读与重验只属于有外部副作用的路径，见 5.1 节仓储背书规则与 6.1 节 M3 方案）：
 
+#### 5.3.0 输入门禁子任务（内部辅助函数，2026-09-10 新增，已完成）
+
+实现未来解析服务使用的内部辅助函数 `_validate_resolution_input_v3`，
+成功仅表示输入内容闭包和范围一致，不代表物理授权解析完成、批准真实有效或仓储背书完成。
+
+新增文件：`application/metadata_resolution_v3.py`
+
+```text
+_validate_resolution_input_v3(
+    request: ResolveMetadataRequestV3,
+) -> ResolveMetadataRequestV3
+```
+
+成功返回重新构造并通过本轮门禁的独立请求副本。不得修改原输入，也不得返回原输入对象。
+
+内部异常：`MetadataResolutionInputErrorV3`（只携带稳定 code，不携带输入内容）。
+
+按以下顺序 fail-fast（第一个失败即返回）：
+
+| # | code | 检查内容 |
+|---|------|----------|
+| 0 | `METADATA_RESOLUTION_INPUT_STRUCTURE_INVALID` | 请求结构重验：根对象必须是 `ResolveMetadataRequestV3`；dict、V2 模型和其他对象不得自动接入；用 `model_dump(by_alias=True, mode="json", warnings="error")` 序列化后重建，防止 model_copy 或构造后修改绕过原始契约 |
+| 1 | `HANDOFF_STRUCTURE_INVALID` 等 6 code | 调用现有 `validate_handoff_closure_v3`，完整保留其六组检查及错误码 |
+| 2 | `HANDOFF_BINDING_REQUEST_MISMATCH` | `bindingRequest` 与 `closure.payload` 字节一致：使用 `canonical_json_bytes` 分别序列化完整模型并比较字节，不得只比较 requestId、ruleRef 或摘要字段 |
+| 3 | `APPROVAL_ID_MISMATCH` 等 9 code | 调用现有 `validate_approval_closure_v3`，保留九组 fail-fast 检查及原 code |
+| 4 | `PROJECT_REF_MISMATCH` | `request.projectRef` 与 `projectContext.projectRef` 完整相等（projectId、projectVersion） |
+| 5 | `RULE_REF_MISMATCH` | `projectContext.ruleRef` 与 `bindingRequest.ruleRef` 完整相等（ruleSetId、ruleVersion、schemaVersion、sourceSha256、catalogDigest、candidatePayloadSha256） |
+| 6 | `REQUEST_NOT_IN_CONTEXT` | `bindingRequest.requestId` 必须在 `projectContext.requestIds` 中 |
+
+本轮不定义公开 `resolve_metadata_v3` 函数；不生成 `BindingResolutionReportV3`；
+不添加"尚未实现"的假 blocked 报告或成功占位结果。
+
+#### 5.3.2 字段绑定与实体键授权闭包（内部辅助函数，2026-09-10 新增）
+
+实现未来解析服务使用的内部辅助函数 `_resolve_fields_and_entity_keys_v3`，
+成功只表示字段与实体键的显式授权引用闭包完整，不表示 SQL 可执行。
+
+```text
+_resolve_fields_and_entity_keys_v3(
+    request: ResolveMetadataRequestV3,
+) -> tuple[tuple[ResolvedFieldV3, ...], tuple[ResolvedEntityKeyV3, ...]]
+```
+
+输出第一项按 `queryRequirements.fields` 原顺序返回；
+第二项按 `entity.keyParameters` 原顺序返回。
+使用已有 V3 DTO，不新增 wire 契约。
+任一失败抛出中性异常，不返回部分结果。
+
+内部异常：`MetadataBindingResolutionErrorV3`（只携带稳定 code）。
+
+处理顺序（fail-fast）：
+
+| # | code | 检查内容 |
+|---|------|----------|
+| 0 | 传播 `MetadataResolutionInputErrorV3` | 调用 `_validate_resolution_input_v3(request)` |
+| 1 | `FIELD_AUTHORIZATION_MISSING` | 按完整键 `(requestId, fieldId, role)` 匹配 field authorization；不匹配则拒绝 |
+| 2 | `ENTITY_KEY_AUTHORIZATION_MISSING` | 按 `(requestId, parameterName)` 匹配 entity-key authorization；零条则拒绝 |
+| 3 | `ENTITY_KEY_AUTHORIZATION_AMBIGUOUS` | 同一参数对应多条不同 fieldId 的授权；拒绝歧义 |
+| 4 | `ENTITY_KEY_FIELD_NOT_FOUND` | entity-key 指定的 fieldId 不存在于本请求 fields |
+| 5 | `ENTITY_KEY_FIELD_ROLE_MISMATCH` | 指定 field 存在但 role 不是 entityKey |
+| 6 | `ENTITY_KEY_COLUMN_GRANT_MISMATCH` | entity-key 与对应 field authorization 的 columnGrantId 不同 |
+
+本轮不实现 SQL 类型兼容、join、filters/aggregation/timeRange 解析或报告组装。
+
+#### 5.3.1 单 column grant 物理引用解析（内部辅助函数，2026-09-10 新增）
+
+实现未来解析服务使用的内部辅助函数 `_resolve_column_grant_v3`，
+成功只表示给定 column grant 的物理引用链与批准包中的快照一致，
+不表示字段绑定授权、实体键、join 已解析，或 SQL 可执行。
+
+```text
+_resolve_column_grant_v3(
+    request: ResolveMetadataRequestV3,
+    column_grant_id: str,
+) -> PhysicalColumnRefV3
+```
+
+返回新构造的 `PhysicalColumnRefV3`，包含快照中准确拼写的 schemaName/relationName/columnName。
+
+内部异常：`MetadataColumnResolutionErrorV3`（只携带稳定 code）。
+
+处理顺序（fail-fast）：
+
+| # | code | 检查内容 |
+|---|------|----------|
+| 0 | 传播 `MetadataResolutionInputErrorV3` | 调用 `_validate_resolution_input_v3(request)`，使用返回的独立副本 |
+| 1 | `COLUMN_GRANT_ID_INVALID` | 参数必须是字符串，符合 `^[A-Za-z0-9][A-Za-z0-9._:-]*$`，最长 200，不 strip/casefold |
+| 2 | `SNAPSHOT_RELATION_AMBIGUOUS` | 建立快照物理标识符唯一性索引；sensitive 逐码点精确比较，insensitive 用 `str.casefold()`；关系键 `(schema, relation)` 重复即拒绝 |
+| 3 | `SNAPSHOT_COLUMN_AMBIGUOUS` | 列键 `(schema, relation, column)` 重复即拒绝；同名列位于不同关系中合法 |
+| 4 | `COLUMN_GRANT_NOT_FOUND` | 在 `context.columnGrants` 中按 grantId 精确匹配；grant ID 不适用物理标识符大小写策略 |
+| 5 | `RELATION_GRANT_NOT_FOUND` | 读取 column grant 的 `relationGrantId`，在 `context.relationGrants` 中精确匹配 |
+| 6 | `RELATION_NOT_IN_SNAPSHOT` | 用 relation grant 的 `schemaName/relationName` 按大小写策略匹配唯一 snapshot relation |
+| 7 | `COLUMN_NOT_IN_SNAPSHOT` | 在上述关系中，用 `column grant.columnName` 按同一策略匹配唯一 snapshot column |
+
+大小写规则：只使用 `snapshot.identifierCaseSensitivity`，不读取数据库 collation 或环境变量。
+索引规范化只用于比较，不修改快照或输出拼写。
+
 1. 输入门禁：先按 5.1 节内容闭包规则校验 `handoff_closure`（payload/Schema 哈希与身份，
    任一失败 → `blocked`）；再校验
    context/snapshot `status=approved`、自身 canonical hash 重算一致、
@@ -634,6 +735,41 @@ BindingResolutionReportV3
   请求复制并校验一致性，永不从 SQL 推导；
 - **禁止**把 usage 折叠成 `conditionId` 集合，或折叠成 `conditionId + stage + outcome`
   的子集（`ruleCode`/`priority`/`conditionPath` 同为六元组身份字段）。
+
+**报告输入格式约束（2026-09-10 补全，BUG-20260910-01 修复）**：
+
+`BindingResolutionReportV3` 在共享 `V3ReportModel`（camelCase、extra=forbid、frozen、
+`str_strip_whitespace=True`、非 strict）基础上，仅在本类覆盖以下配置：
+
+- `strict=True`：禁止 Pydantic 类型强转。`issues`、`resolvedFields`、
+  `resolvedEntityKeys`、`resolvedFilters`、`resolvedJoins` 等列表字段传入
+  `tuple` 时必须拒绝。注：`requestRef.requestId` 传入整数时，由 `RequestRefV3`
+  自身的 `str` 类型约束拒绝（两个版本中均已被拒绝，错误位置
+  `("requestRef", "requestId")`，类型 `string_type`），属于既有约束，
+  不是本轮修复内容；
+- `str_strip_whitespace=False`：关闭字符串两端空白的自动删除。
+  SHA-256 字段由既有格式约束（`pattern=_SHA256_PATTERN`）拒绝前后空白。
+  普通说明字段是否允许空白，由其自身契约决定；
+- 保持既有 camelCase、extra=forbid、snake_case 拒绝、frozen 和其他约束；
+- 不修改共享 `V3ReportModel`，避免影响既有 intake 报告（V3 intake report 等）；
+- 不新增哈希重算、批准校验或授权解析到 Pydantic validator。
+
+**blocked 报告六项输出完整性（2026-09-10 补全）**：
+
+`status=blocked` 时，`_validate_report_consistency` 必须检查全部六个结果字段：
+
+1. `resolvedFields` 必须为空列表；
+2. `resolvedEntityKeys` 必须为空列表；
+3. `resolvedFilters` 必须为空列表；
+4. `resolvedJoins` 必须为空列表；
+5. `resolvedAggregation` 必须为 `None`；
+6. `resolvedTimeRange` 必须为 `None`；
+7. 必须至少包含一个 `impact=blocker` 的 issue；
+8. `executable` 始终为 `false`（由 `Literal[False]` 保证）。
+
+即使 `resolvedAggregation.mode="none"` 或 `resolvedTimeRange.mode="none"`，它仍是
+非 `None` 的解析结果对象，blocked 也必须显式拒绝，不能静默删除、清空或修复输入。
+`metadataResolved` 的合法行为保持不变，包括允许上述可选字段为 `None`。
 
 ## 6. V3 候选生成（M3）
 
@@ -832,10 +968,14 @@ BindingResolutionReportV3
 
 ### M0：上游 commit 锚点与跨仓库基线（`completed`，2026-09-09 用户批准并落档）
 
-**当前状态（2026-09-09）：M0 已收口。上游 commit 与三类哈希来源登记已由 T0 完成；本组
-REQ/BIZ/DEV 已由用户明确批准并落档；M0 规划批次已进入提交 `61a377f`。M1 已启动
-（`in_progress`），首个契约子任务及审核修复已完成；九组批准校验和 handoff 契约尚未实施。
-以下 2026-09-06 快照保留为历史审计记录，不再代表当前上游状态。**
+**2026-09-09 历史快照（不代表当前实施状态）：** 当时 M0 已收口，上游 commit
+与三类哈希来源登记已由 T0 完成；本组 REQ/BIZ/DEV 已由用户明确批准并落档；
+M0 规划批次已进入提交 `61a377f`；M1 已启动（`in_progress`），首个契约子任务
+及审核修复已完成；九组批准校验和 handoff 契约尚未实施。
+
+**当前状态**：M1 已完成（`completed`）；M2 为 `in_progress`
+（已完成闭包校验、usage 摘要、请求/报告契约及报告契约修复；
+剩余八步确定性解析）。详见本节 M1/M2 及最新 PROG。
 
 - 2026-09-09 已完成：上游 V3 契约提交、完整 commit 锚点、提交树原始字节哈希与运行时规范化
   哈希登记；真实生成仍受 10.1 节其余门禁约束。
@@ -914,7 +1054,10 @@ REQ/BIZ/DEV 已由用户明确批准并落档；M0 规划批次已进入提交 `
 ### M2：V3 元数据解析（Phase 2G V3）
 
 - 前置条件：M1 完成。
-- 状态：`in_progress`（已完成内容闭包校验和 usage 追溯摘要；解析请求/报告及八步授权解析尚未实现）。
+- 状态：`in_progress`（内容闭包校验、usage 摘要、请求/报告契约、
+  报告契约修复及输入门禁内部辅助函数已完成；
+  `application/metadata_resolution_v3.py` 已存在；
+  公开 resolve_metadata_v3、§5.3 第 2～8 步及报告组装未实现）。
 - 已完成子任务：
   - `application/validate_handoff_closure_v3.py`（内容闭包纯计算校验，六组有序 fail-fast 检查）；
     `domain/handoff_closure_v3.py` 增加 `HandoffClosureValidationErrorV3`；
@@ -945,7 +1088,22 @@ REQ/BIZ/DEV 已由用户明确批准并落档；M0 规划批次已进入提交 `
     SHA-256 格式、blocked 必须含 blocker、blocked 不得携带部分输出、
     metadataResolved 不得含阻断 issue、空 filters/aggregation/timeRange/join 合法、
     evidence 引用无损、无执行/审核/SQL 字段）。
-  - 剩余工作：`application/metadata_resolution_v3.py`；第 5.3 节八步确定性解析。
+  - **审核修复（2026-09-10）**：`BindingResolutionReportV3` 修复 blocked 报告
+    六项输出完整性（新增 aggregation/timeRange None 检查）和顶层静默规范化
+    （strict=True、str_strip_whitespace=False）；新增 15 项针对性测试；
+    报告契约测试总计 49 项。详见
+    [BUG-20260910-01](../bugs/BUG-20260910-01-v3-binding-resolution-report-contract-gaps.md)。
+  - **第五子任务已完成（2026-09-10）**：`application/metadata_resolution_v3.py` 已存在，
+    输入门禁内部辅助函数 `_validate_resolution_input_v3` 已实现
+    （结构重验 + 六步内容/范围门禁）；47 项单元测试通过。
+  - **第六子任务已完成（2026-09-10）**：`_resolve_column_grant_v3`
+    （单 column grant 物理引用解析：column grant → relation grant →
+    snapshot relation → snapshot column）；43 项单元测试通过。
+  - **测试修复已完成（2026-09-10）**：补强返回副本隔离（含捕获浅拷贝的辅助函数）、
+    失败输入不变性（实际传入对象前后对比）、evidenceIds 顺序敏感性、
+    结构异常脱敏（真实 V3 根参数化）、双向顺序证据；生产代码未修改。
+  - 剩余工作：字段绑定授权、实体键、filters/aggregation/timeRange/join 解析及报告组装未实现；
+    真实仓储背书由后续有副作用的应用服务在生成/存储前完成。
 - DoD：第 5.3 节八步确定性解析全部有 happy/blocked 测试；5.1 节内容闭包规则全部有正反
   测试（已完成）；usage 追溯摘要排序、重复拒绝和输入重排测试已完成；
   `ResolveMetadataRequestV3` 和 `BindingResolutionReportV3` 契约测试已完成；
@@ -1067,14 +1225,19 @@ context/snapshot/grants；离线 fake provider 实现和测试不以真实 provi
 ④ 上游 Schema v5 migration 与真实 batch 写入仍需单独授权；
 ⑤ 本任务与 M1 前的全部里程碑均不运行真实持久化脚本。
 
-**M0 已收口（2026-09-09）：REQ/BIZ/DEV-20260906-04 已由用户明确批准并落档，M0 状态为
-`completed`；Git 提交需用户另行明确授权。M1 已启动（`in_progress`）；首个项目授权/快照/批准记录契约子任务及其审核修复已完成，后续仍受 M1 剩余范围约束。**
+**2026-09-09 历史快照（不代表当前实施状态）：** M0 已收口，
+REQ/BIZ/DEV-20260906-04 已由用户明确批准并落档，M0 状态为 `completed`；
+Git 提交需用户另行明确授权；M1 已启动（`in_progress`），首个项目授权/
+快照/批准记录契约子任务及其审核修复已完成，后续仍受 M1 剩余范围约束。
+
+**当前状态**：M1 已完成（`completed`）；M2 为 `in_progress`。
+详见本节 M1/M2 及最新 PROG。
 
 ## 14. 开放问题
 
 | # | 问题 | Owner | 阻断 |
 | --- | --- | --- | --- |
-| 1 | ApprovalRecordV3 结构（§3.3）与 M1 创建/版本语义已随五项设计获批；**设计已批准，原 M1 设计阻塞解除**；真实存储、生命周期和受信批准来源核验仍属后续里程碑 | metadataReview + sqlBot | M1（设计已批准，实现未完成） |
+| 1 | ApprovalRecordV3 结构（§3.3）与 M1 创建/版本语义已随五项设计获批；**M1 契约及九组纯计算批准闭包校验已完成，该项不再阻断 M1**；真实存储、生命周期和受信批准来源核验仍属后续门禁，按 §3.6、M3/M6 和开放问题第 2 项执行 | metadataReview + sqlBot | **已关闭（M1 范围）** |
 | 2 | context 生命周期事件记录/active pointer 的存储设计与审计载体（3.2 节方案的实施确认；M1 只做契约与纯计算校验，存储设计在 M6 编排前冻结） | sqlBot + metadataReview | M6 |
 | 3 | V3 Prompt 版本命名与 `exactOutputDeclarations` 等价结构设计 | sqlBot | M3 |
 | 4 | parser-neutral 检查是提取共享模块还是 V3 内参数化副本（两者都合规，实施时二选一并登记） | sqlBot | M4 |

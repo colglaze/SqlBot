@@ -180,8 +180,25 @@
 - M2 第三子任务已完成（2026-09-11）：`ResolveMetadataRequestV3` 请求契约
   （domain/project_bindings_v3.py，34 项契约测试）。
 - M2 第四子任务已完成（2026-09-11）：`BindingResolutionReportV3` 报告契约
-  （domain/project_bindings_v3.py，34 项契约测试）；全量 734 passed。
-  M2 仍为 `in_progress`，剩余：八步授权解析。
+  （domain/project_bindings_v3.py，49 项契约测试）。
+- M2 审核修复已完成（2026-09-10）：`BindingResolutionReportV3` 修复 blocked
+  报告六项输出完整性（新增 aggregation/timeRange None 检查）和顶层静默规范化
+  （strict=True、str_strip_whitespace=False）；15 项新增针对性测试；全量 749 passed。
+  详见 [BUG-20260910-01](bugs/BUG-20260910-01-v3-binding-resolution-report-contract-gaps.md)。
+- M2 第五子任务已完成（2026-09-10）：`_validate_resolution_input_v3`
+  （输入门禁内部辅助函数，结构重验 + 六步内容/范围门禁，47 项单元测试）。
+- M2 第六子任务已完成（2026-09-10）：`_resolve_column_grant_v3`
+  （单 column grant 物理引用解析：column grant → relation grant →
+  snapshot relation → snapshot column，43 项单元测试，全量 839 passed）。
+- M2 第六子任务修复已完成（2026-09-10）：修复快照重复检测顺序依赖缺陷
+  （全局关系检查完成后才检查全局列），新增回归测试与双向顺序验证。
+- M2 第七子任务已完成（2026-09-10）：`_resolve_fields_and_entity_keys_v3`
+  （字段绑定与实体键授权闭包，22 项单元测试，全量 870 passed）。
+- M2 列授权解析测试矩阵补齐已完成（2026-09-10）：52 项定向、848 项全量。
+- M2 测试修复已完成（2026-09-10）：补强返回副本隔离（含捕获浅拷贝的辅助函数）、
+  失败输入不变性（实际传入对象前后对比）、evidenceIds 顺序敏感性、
+  结构异常脱敏（真实 V3 根参数化）、双向顺序证据；生产代码未修改。
+  M2 仍为 `in_progress`，剩余：字段绑定、实体键、filters/aggregation/timeRange/join 解析及报告组装。
 
 ## Phase 5：受限 SQL Server 验证
 

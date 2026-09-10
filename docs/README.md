@@ -94,7 +94,10 @@
 
 ### 技术与交付
 
+- [PROG-20260911：V3 M2 内容闭包校验、usage 追溯摘要、解析请求/报告契约与审核修复](progress/PROG-20260911.md)
 - [PROG-20260910：V3 M1 最后切片（handoff 契约、批准校验测试补缺和进度收口）](progress/PROG-20260910.md)
+- [BUG-20260910-01：BindingResolutionReportV3 报告契约缺口（blocked 输出漏洞与静默规范化）](bugs/BUG-20260910-01-v3-binding-resolution-report-contract-gaps.md)
+- [BUG-20260910-02：V3 列授权解析中快照重复检测的顺序依赖缺陷](bugs/BUG-20260910-02-v3-column-grant-snapshot-index-order-dependency.md)
 - [PROG-20260909：T0 来源登记与 V3 后续实施条件规划](progress/PROG-20260909.md)
 - [BUG-20260908-01：V3 下游契约来源登记与上游提交树不一致（行尾 / 提交状态）](bugs/BUG-20260908-01-v3-downstream-contract-source-hash-normalization.md)
 - [BUG-20260908-02：V3 上游已归档交付与主来源业务语义存在可复现差距](bugs/BUG-20260908-02-v3-upstream-fact-catalog-contract-gaps.md)
