@@ -60,8 +60,15 @@ ReleaseSQLBot 是双 Agent 方案中的 Agent 2：消费 RuleReader（Agent 1）
   provider 调用次数为零。
 
 V2 的 `readyForMetadataResolution` 只表示可以开始受治理的元数据解析，不表示可进入生成阶段。
-V3 的 `readyForMetadataResolution` 目前只表示批次通过了只读 intake 门禁；V3 下游（Phase 2G
-元数据解析、候选生成、静态门禁与候选存储）尚未实现，且禁止把 V3 转换、裁剪或降级为 V2 契约
+V3 的 `readyForMetadataResolution` 目前只表示批次通过了只读 intake 门禁。V3 实施进度：
+intake（已完成，`b3e3d35`）和 M1 授权上下文/快照/handoff 闭包契约（已完成）已交付；
+M2 元数据解析部分完成（内容闭包校验、usage 摘要、请求/报告契约、输入门禁、column grant 解析、
+字段/实体键授权闭包、filters 物理字段解析、aggregation 授权引用解析、
+timeRange 时间字段授权解析、指定 join grant 物理授权解析、
+多关系授权连接闭包选择等辅助函数已完成；
+完整 ResolvedJoinV3/evidenceIds、执行方向语义、公开 `resolve_metadata_v3` 编排及报告组装仍未实现）；
+M3–M6（候选生成、静态门禁、候选存储、编排与证据包）
+尚未开工，完整 V3 下游链未打通。禁止把 V3 转换、裁剪或降级为 V2 契约
 （见 [REQ-20260906-04](docs/requirements/REQ-20260906-04-v3-downstream-pipeline-alignment.md)
 与 [BUG-20260906-01](docs/bugs/BUG-20260906-01-v3-phase4r-downstream-contract-gap.md)）。
 旧 `ready` 仅属于 V1 legacy API；候选生成成功不表示已通过 AST。即使 Phase 4 静态报告为 `passed`，
@@ -270,8 +277,6 @@ uv run pytest
 - [FactBindingRequest 3.0.0 下游管线对齐需求](docs/requirements/REQ-20260906-04-v3-downstream-pipeline-alignment.md)
 - [V3 下游管线权威边界与复用决策](docs/decisions/BIZ-20260906-03-v3-downstream-authority-boundary.md)
 - [FactBindingRequest 3.0.0 下游管线对齐设计与实施计划](docs/architecture/DEV-20260906-04-v3-downstream-pipeline-alignment.md)
-- [V3 下游管线权威边界与复用决策](docs/decisions/BIZ-20260906-03-v3-downstream-authority-boundary.md)
-- [FactBindingRequest 3.0.0 下游管线对齐设计与实施计划](docs/architecture/DEV-20260906-04-v3-downstream-pipeline-alignment.md)
 - [V3 intake 与 Phase 4R 下游契约缺口](docs/bugs/BUG-20260906-01-v3-phase4r-downstream-contract-gap.md)
 - [FactBindingRequest 3.0.0 intake 升级需求](docs/requirements/REQ-20260906-03-fact-binding-v3-intake.md)
 - [FactBindingRequest 3.0.0 intake 权威边界](docs/decisions/BIZ-20260906-02-fact-binding-v3-authority-boundary.md)
@@ -315,4 +320,7 @@ uv run pytest
 旧的“整规则异常集合 SQL”文档作为历史记录保留，不再指导 SQL 生成；其中规则 JSON Schema 1.0
 只被复用于确定性的规则读取校验、canonicalization、哈希和 diff。
 
-`FactBindingRequest 1.0.0` 模型和生成测试同样只作 legacy 记录；当前 RuleReader 运行时交接只认 V2。
+`FactBindingRequest 1.0.0` 模型和生成测试同样只作 legacy 记录。
+当前 RuleReader 运行时交接同时支持 V2（`FactBindingRequest 2.0.0`，完整 Phase 2G/3/4 链路已打通）
+与 V3（`FactBindingRequest 3.0.0`，intake 与 M1 已完成，M2 部分完成，完整 V3 下游链未打通）；
+V3 只读 intake 已完成，但禁止把 V3 转换、裁剪或降级为 V2 契约。

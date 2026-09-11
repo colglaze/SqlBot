@@ -160,19 +160,20 @@
 - V3 下游管线对齐已立项（REQ-20260906-04 / BIZ-20260906-03 / DEV-20260906-04，均
   `approved`，2026-09-09 用户批准）：独立 V3 契约链（V3 授权上下文/快照 → Phase 2G V3 →
   V3 候选生成 → V3 静态门禁 → V3 候选存储 → V3 编排与证据包，里程碑 M1–M6）插入在本阶段
-  原 Milestone 1–8 之前；M0 已收口（`completed`），M1 已启动（`in_progress`）；
+  原 Milestone 1–8 之前；M0 已收口（`completed`），M1 当时已启动（`in_progress`）；
 - 在该下游链完成前，不实现 Phase 4R 编排服务，不生成真实候选。2026-09-09 已完成上游 commit
   与三类哈希来源登记（提交 `e3b00b2`），原”无 commit 锚点”阻塞解除；M0 规划批次已进入提交
   `61a377f`；固定私有资料中的现有事实也已由用户确认，后续不再重复索取。当前剩余工作按职责
   分工：`businessRuleReview` 负责上游业务表达及新版本 catalog/rules/handoff；`metadataReview`
   负责已确认物理事实到版本化 context/snapshot/grants 的转换与批准；SqlBot M1 只负责契约模型
-  和批准内容闭包纯计算校验。M0 已因规划文档批准并落档而收口为 `completed`；M1 已启动（`in_progress`），
-  首个子任务及审核修复已完成，九组批准校验子任务已完成；handoff 契约子任务已完成（2026-09-10）：
+和批准内容闭包纯计算校验。M0 已因规划文档批准并落档而收口为 `completed`；M1 当时已启动（`in_progress`），
+首个子任务及审核修复已完成，九组批准校验子任务已完成；handoff 契约子任务已完成（2026-09-10）：
   `handoff_closure_v3.py`（`HandoffClosureV3` + `RepositoryVerifiedHandoffV3`，构造器已改为无条件
   TypeError）、`test_handoff_closure_v3_contract.py`（76 项，含 verified 构造边界/V2 完整 fixture 拒绝/
   字段边界参数化/生命周期隔离）、`test_project_bindings_v3_contract.py`（110 项，含 6 项精确反例）；
   全量 610 passed。
-  M1 已标记 `completed`（2026-09-10），未提交。
+  M1 已标记 `completed`（2026-09-10）；实现已提交（`189daca`、`29716b0`），
+  当时本轮文档修订尚未提交。
 - M2 第一子任务已完成（2026-09-11）：`validate_handoff_closure_v3.py`（内容闭包校验，
   六组有序 fail-fast 检查，36 项单元测试）。
 - M2 第二子任务已完成（2026-09-11）：`usage_traceability_v3.py`（六元组追溯摘要，
@@ -189,16 +190,33 @@
   （输入门禁内部辅助函数，结构重验 + 六步内容/范围门禁，47 项单元测试）。
 - M2 第六子任务已完成（2026-09-10）：`_resolve_column_grant_v3`
   （单 column grant 物理引用解析：column grant → relation grant →
-  snapshot relation → snapshot column，43 项单元测试，全量 839 passed）。
+  snapshot relation → snapshot column；历史快照 43 项，后补齐至 52 项；全量 839 passed 为当时记录）。
 - M2 第六子任务修复已完成（2026-09-10）：修复快照重复检测顺序依赖缺陷
   （全局关系检查完成后才检查全局列），新增回归测试与双向顺序验证。
 - M2 第七子任务已完成（2026-09-10）：`_resolve_fields_and_entity_keys_v3`
-  （字段绑定与实体键授权闭包，22 项单元测试，全量 870 passed）。
+  （字段绑定与实体键授权闭包；历史快照 22 项，后补齐至 26 项；全量 870 passed 为当时记录）。
 - M2 列授权解析测试矩阵补齐已完成（2026-09-10）：52 项定向、848 项全量。
 - M2 测试修复已完成（2026-09-10）：补强返回副本隔离（含捕获浅拷贝的辅助函数）、
   失败输入不变性（实际传入对象前后对比）、evidenceIds 顺序敏感性、
   结构异常脱敏（真实 V3 根参数化）、双向顺序证据；生产代码未修改。
-  M2 仍为 `in_progress`，剩余：字段绑定、实体键、filters/aggregation/timeRange/join 解析及报告组装。
+  M2 第八子任务已完成（2026-09-11）：`_resolve_filters_v3`
+  （filters 物理字段解析；原交付 24 项 / 898 passed，
+  补强验收证据后当前 30 项 / 904 passed）。
+  M2 第九子任务已完成（2026-09-11）：`_resolve_aggregation_v3`
+  （aggregation 授权引用解析；原交付 25 项 / 929 passed，
+  补强验收证据后当前 32 项 / 936 passed）。
+  M2 第十子任务已完成（2026-09-11）：`_resolve_time_range_v3`
+  （timeRange 时间字段授权解析，23 项单元测试，全量 959 passed）。
+  M2 第十一子任务已完成（2026-09-11）：`_resolve_join_grant_v3`
+  （指定 join grant 物理授权解析；原交付 22 项 / 981 passed，
+  补强验收证据后当前 30 项 / 989 passed）。
+  M2 第十二子任务已完成（2026-09-11）：`_select_join_closure_v3`
+  （多关系授权连接闭包选择；原交付 18 项 / 1007 passed，
+  修复门禁绕过后当前 27 项 / 1016 passed）。
+  M2 仍为 `in_progress`，剩余：完整 ResolvedJoinV3/evidenceIds、执行方向语义、公开 `resolve_metadata_v3` 编排及报告组装；
+  另 `entityType`/`grain` 到授权 relation 的映射待澄清（见 DEV §14 开放问题第 7 项）。
+  filters/aggregation/timeRange/join-grant/join-closure 辅助函数已完成，但完整解析服务与报告组装仍未实现，M2 不标记 `completed`。
+  当前代码基线详见最新 PROG。
 
 ## Phase 5：受限 SQL Server 验证
 

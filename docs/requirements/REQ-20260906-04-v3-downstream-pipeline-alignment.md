@@ -277,8 +277,14 @@ Phase 2G → 3 → 4 → 存储，并显式划定 Phase 5 对齐的边界。
    测试证明静态 blocked 候选的存储审计记录完整且未被修改；实施顺序（M4 先于 M5 交付）
    不构成对运行顺序的更改；
 8. M0 状态验收：上游 V3 契约 commit 与来源哈希登记已于 2026-09-09 完成；本组 REQ/BIZ/DEV
-   已于 2026-09-09 由用户明确批准并落档，M0 整体状态为 `completed`；M1 仍未开工，需用户
-   明确授权后方可开始。来源登记完成不等于业务表达 vNext、context/snapshot 批准或真实生成完成。
+   已于 2026-09-09 由用户明确批准并落档，M0 整体状态为 `completed`。
+   **当前状态**：M1 已完成（`completed`，2026-09-10，提交 `189daca`、`29716b0`）；
+   M2 为 `in_progress`（提交 `4f0f45c`：输入门禁、column grant 解析、字段/实体键授权闭包、
+   filters 物理字段解析、aggregation 授权引用解析、
+   timeRange 时间字段授权解析、指定 join grant 物理授权解析已完成；
+   剩余 多关系连接选择、完整 join 输出、公开编排及报告组装；
+   `entityType`/`grain` 映射待澄清，见 DEV §14 开放问题第 7 项）。
+   来源登记完成不等于业务表达 vNext、context/snapshot 批准或真实生成完成。
 
 ## 8. 阻断项
 

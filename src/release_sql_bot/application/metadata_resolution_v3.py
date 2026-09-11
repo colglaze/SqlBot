@@ -1,14 +1,49 @@
-"""V3 metadata-resolution physical-reference resolution (M2 第五、第六、第七子任务).
+"""V3 metadata-resolution physical-reference helpers (M2 subtasks 5–11).
 
 Internal helpers that re-validate input consistency and resolve physical
 references for a ``ResolveMetadataRequestV3`` without accessing any repository,
 provider, SQL Server, or environment.
 
+Implemented capabilities:
+
+* Input gate ``_validate_resolution_input_v3``: structural re-validation plus
+  six-group content/scope checks (DEV §5.3.0).
+* Single column-grant resolution ``_resolve_column_grant_v3``: column grant
+  → relation grant → snapshot relation → snapshot column (DEV §5.3.1).
+* Field and entity-key binding closure ``_resolve_fields_and_entity_keys_v3``:
+  explicit field-authorization chain and entity-key authorization closure
+  (DEV §5.3.2).
+* Filter resolution ``_resolve_filters_v3``: maps each filter item to its
+  authorized physical column reference (via the already-resolved field
+  authorization) and verifies each item's ``evidenceIds`` against the
+  request's top-level evidence (DEV §5.3.3).  This helper only completes
+  field physical mapping and evidence-reference checking; it does NOT prove
+  filter semantics correct, SQL executable, or complete M2 finished.
+* Aggregation resolution ``_resolve_aggregation_v3``: verifies that every
+  field referenced by the aggregation declaration (inputFieldIds +
+  groupByFieldIds) is covered by an authorized field result, then copies
+  the six declared fields verbatim into a new ``ResolvedAggregationV3``
+  (DEV §5.3.4).  This helper only proves field-reference authorization
+  closure and declaration preservation; it does NOT compute aggregation,
+  generate SQL, or prove aggregation results or type correctness.
+* Time-range resolution ``_resolve_time_range_v3``: for ``none`` mode
+  returns null physical identifiers; for ``asOf``/``between`` maps the
+  time field to its authorized physical column reference (DEV §5.3.5).
+  This helper only proves the time-field authorization mapping; it does
+  NOT validate date semantics, SQL executability, or time-range correctness.
+* Join-grant resolution ``_resolve_join_grant_v3``: validates a specified
+  join grant, resolves both column grants, and verifies exactly one
+  snapshot relationship edge matches (undirected) (DEV §5.3.6).  This
+  helper only proves the specified grant's physical closure; it does NOT
+  select join paths, generate SQL, or prove join correctness.
+
 Success proves only that the input is internally consistent and that the
 referenced physical objects exist in the carried snapshot; it does NOT prove
-field-binding authorization, entity keys, joins, approval truthiness, or
-repository attestation.  Future application service must independently re-run
-these checks and complete the eight deterministic resolution steps (DEV §5.3).
+approval truthiness, repository attestation, or SQL executability.
+The public ``resolve_metadata_v3`` orchestrator and full report assembly
+are NOT implemented yet.  Future application service must independently
+re-run these checks and complete the eight deterministic resolution steps
+(DEV §5.3).
 
 Pure computation: no repository, provider, SQL, or environment access.
 """
@@ -35,11 +70,17 @@ from release_sql_bot.domain.project_bindings_v3 import (
     FieldBindingAuthorizationV3,
     GovernedColumnV3,
     GovernedMetadataSnapshotV3,
+    GovernedRelationshipV3,
     GovernedRelationV3,
+    JoinGrantV3,
+    JoinTypeV3,
     PhysicalColumnRefV3,
     RelationGrantV3,
+    ResolvedAggregationV3,
     ResolvedEntityKeyV3,
     ResolvedFieldV3,
+    ResolvedFilterV3,
+    ResolvedTimeRangeV3,
     ResolveMetadataRequestV3,
 )
 
@@ -561,3 +602,526 @@ def _resolve_fields_and_entity_keys_v3(
         resolved_entity_keys.append(resolved_ek)
 
     return tuple(resolved_fields), tuple(resolved_entity_keys)
+
+
+# ---------------------------------------------------------------------------
+# Filter resolution (DEV §5.3.3)
+# ---------------------------------------------------------------------------
+
+_FILTER_RESOLUTION_CODES: frozenset[str] = frozenset(
+    {
+        "FILTER_EVIDENCE_REFERENCE_INVALID",
+    }
+)
+
+
+class MetadataFilterResolutionErrorV3(Exception):
+    """Stable neutral error for V3 filter resolution.
+
+    Carries only the issue code. Never carries raw IDs, object names,
+    payloads, or original exceptions.
+    """
+
+    def __init__(self, code: str) -> None:
+        if not isinstance(code, str) or code not in _FILTER_RESOLUTION_CODES:
+            raise ValueError("unknown filter-resolution issue code")
+        super().__init__(code)
+        self.code = code
+
+    def __str__(self) -> str:
+        return self.code
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(code={self.code!r})"
+
+
+def _resolve_filters_v3(
+    request: ResolveMetadataRequestV3,
+) -> tuple[ResolvedFilterV3, ...]:
+    """Resolve filter items to physical field references (DEV §5.3.3).
+
+    Re-validates input consistency, resolves field authorizations, then
+    maps each filter item to its authorized physical column reference.
+    Uses the field's actual declared role for authorization — a filter
+    reference does not force ``role="filter"``.
+
+    Args:
+        request: V3 metadata-resolution request.
+
+    Returns:
+        A tuple of ResolvedFilterV3 in the original filters.items order.
+        Returns an empty tuple when filters.items is empty (after the input
+        and field/entity-key gates have passed).
+
+    Raises:
+        MetadataResolutionInputErrorV3: on input-gate failure (propagated).
+        MetadataBindingResolutionErrorV3: on field/entity-key failure
+            (propagated).
+        MetadataColumnResolutionErrorV3: on column-grant failure
+            (propagated).
+        MetadataFilterResolutionErrorV3: when a filter item references an
+            evidence ID that does not exist in the request's top-level
+            evidence. Code is always ``FILTER_EVIDENCE_REFERENCE_INVALID``.
+    """
+    # 0. Input gate — use the verified copy for all later steps
+    verified = _validate_resolution_input_v3(request)
+
+    # 1. Resolve fields and entity keys (re-validates + authorizes)
+    resolved_fields, _ = _resolve_fields_and_entity_keys_v3(verified)
+
+    # Build a lookup: field_id -> ResolvedFieldV3
+    field_by_id = {field.field_id: field for field in resolved_fields}
+
+    # Build the set of valid top-level evidence IDs
+    valid_evidence_ids = {evidence.evidence_id for evidence in verified.binding_request.evidence}
+
+    # 2. Map each filter item in original order
+    resolved_filters: list[ResolvedFilterV3] = []
+
+    for item in verified.binding_request.query_requirements.filters.items:
+        # Verify each filter item's evidence references exist at top level
+        for evidence_id in item.evidence_ids:
+            if evidence_id not in valid_evidence_ids:
+                raise MetadataFilterResolutionErrorV3("FILTER_EVIDENCE_REFERENCE_INVALID")
+
+        # Find the authorized field for this filter item by field_id only.
+        # Authorization already used the field's actual role; a filter
+        # reference does not require role="filter".
+        resolved_field = field_by_id.get(item.field_id)
+        if resolved_field is None:
+            # Defensive: consumer reference closure guarantees this field
+            # exists and was resolved; treat absence as a field error.
+            raise MetadataBindingResolutionErrorV3("FIELD_AUTHORIZATION_MISSING")
+
+        # Build the resolved filter using the field's physical spelling
+        resolved_filter = ResolvedFilterV3.model_validate(
+            {
+                "filterId": item.filter_id,
+                "fieldId": item.field_id,
+                "schemaName": resolved_field.schema_name,
+                "relationName": resolved_field.relation_name,
+                "columnName": resolved_field.column_name,
+                "evidenceIds": list(item.evidence_ids),  # copy from filter item
+            }
+        )
+        resolved_filters.append(resolved_filter)
+
+    return tuple(resolved_filters)
+
+
+# ---------------------------------------------------------------------------
+# Aggregation resolution (DEV §5.3.4)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_aggregation_v3(
+    request: ResolveMetadataRequestV3,
+) -> ResolvedAggregationV3:
+    """Resolve aggregation field references (DEV §5.3.4).
+
+    Re-validates input consistency, resolves field authorizations, then
+    verifies that every field referenced by the aggregation declaration is
+    covered by an authorized field result.  Copies the aggregation
+    declaration verbatim into a new ``ResolvedAggregationV3``.
+
+    Args:
+        request: V3 metadata-resolution request.
+
+    Returns:
+        A new ResolvedAggregationV3 with the six declared fields copied
+        (mode, function, inputFieldIds, groupByFieldIds, distinct,
+        evidenceIds).  Lists are copied; they do not share mutable
+        references with the input.
+
+    Raises:
+        MetadataResolutionInputErrorV3: on input-gate failure (propagated).
+        MetadataBindingResolutionErrorV3: on field/entity-key failure
+            (propagated) or when a referenced field is not authorized.
+        MetadataColumnResolutionErrorV3: on column-grant failure
+            (propagated via field resolution).
+    """
+    # 0. Input gate — use the verified copy for all later steps
+    verified = _validate_resolution_input_v3(request)
+
+    # 1. Resolve fields and entity keys (re-validates + authorizes)
+    resolved_fields, _ = _resolve_fields_and_entity_keys_v3(verified)
+
+    # Build a lookup: field_id -> ResolvedFieldV3
+    field_by_id = {field.field_id: field for field in resolved_fields}
+
+    aggregation = verified.binding_request.query_requirements.aggregation
+
+    # 2. Verify every referenced field is authorized.
+    # Authorization uses each field's actual declared role; a reference
+    # does not force role="value" or "groupBy".
+    referenced_ids = [*aggregation.input_field_ids, *aggregation.group_by_field_ids]
+    for field_id in referenced_ids:
+        if field_by_id.get(field_id) is None:
+            raise MetadataBindingResolutionErrorV3("FIELD_AUTHORIZATION_MISSING")
+
+    # 3. Build the result, copying the six declared fields verbatim.
+    return ResolvedAggregationV3.model_validate(
+        {
+            "mode": str(aggregation.mode),
+            "function": aggregation.function,
+            "inputFieldIds": list(aggregation.input_field_ids),
+            "groupByFieldIds": list(aggregation.group_by_field_ids),
+            "distinct": aggregation.distinct,
+            "evidenceIds": list(aggregation.evidence_ids),
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# Time-range resolution (DEV §5.3.5)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_time_range_v3(
+    request: ResolveMetadataRequestV3,
+) -> ResolvedTimeRangeV3:
+    """Resolve the time-range field reference (DEV §5.3.5).
+
+    Re-validates input consistency, resolves field authorizations, then
+    maps the time-range declaration to its authorized physical column
+    reference.  For ``none`` mode all physical identifiers are null; for
+    ``asOf``/``between`` the physical names come from the authorized field.
+
+    Args:
+        request: V3 metadata-resolution request.
+
+    Returns:
+        A new ResolvedTimeRangeV3.  For ``none`` mode: mode="none" with
+        all physical identifiers null.  For ``asOf``/``between``: mode and
+        timeFieldId copied from the declaration, physical names from the
+        authorized field.  evidenceIds are copied from the declaration.
+
+    Raises:
+        MetadataResolutionInputErrorV3: on input-gate failure (propagated).
+        MetadataBindingResolutionErrorV3: on field/entity-key failure
+            (propagated) or when the time field is not authorized.
+        MetadataColumnResolutionErrorV3: on column-grant failure
+            (propagated via field resolution).
+    """
+    # 0. Input gate — use the verified copy for all later steps
+    verified = _validate_resolution_input_v3(request)
+
+    # 1. Resolve fields and entity keys (re-validates + authorizes)
+    resolved_fields, _ = _resolve_fields_and_entity_keys_v3(verified)
+
+    # Build a lookup: field_id -> ResolvedFieldV3
+    field_by_id = {field.field_id: field for field in resolved_fields}
+
+    time_range = verified.binding_request.query_requirements.time_range
+
+    # 2. For none mode, return null physical identifiers after gates pass.
+    if str(time_range.mode) == "none":
+        return ResolvedTimeRangeV3.model_validate(
+            {
+                "mode": "none",
+                "timeFieldId": None,
+                "timeSchemaName": None,
+                "timeRelationName": None,
+                "timeColumnName": None,
+                "evidenceIds": list(time_range.evidence_ids),
+            }
+        )
+
+    # 3. asOf / between: resolve the time field's physical reference.
+    # Authorization uses the field's actual declared role; a time-range
+    # reference does not force role="time".
+    resolved_field = field_by_id.get(time_range.time_field_id)
+    if resolved_field is None:
+        raise MetadataBindingResolutionErrorV3("FIELD_AUTHORIZATION_MISSING")
+
+    return ResolvedTimeRangeV3.model_validate(
+        {
+            "mode": str(time_range.mode),
+            "timeFieldId": time_range.time_field_id,
+            "timeSchemaName": resolved_field.schema_name,
+            "timeRelationName": resolved_field.relation_name,
+            "timeColumnName": resolved_field.column_name,
+            "evidenceIds": list(time_range.evidence_ids),
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# Join-grant physical-reference resolution (DEV §5.3.6)
+# ---------------------------------------------------------------------------
+
+_JOIN_RESOLUTION_CODES: frozenset[str] = frozenset(
+    {
+        "JOIN_GRANT_ID_INVALID",
+        "JOIN_GRANT_NOT_FOUND",
+        "JOIN_ENDPOINTS_IDENTICAL",
+        "JOIN_RELATIONSHIP_NOT_FOUND",
+        "JOIN_RELATIONSHIP_AMBIGUOUS",
+    }
+)
+
+
+class MetadataJoinResolutionErrorV3(Exception):
+    """Stable neutral error for V3 join-grant physical-reference resolution.
+
+    Carries only the issue code. Never carries raw grant IDs, object names,
+    payloads, or original exceptions.
+    """
+
+    def __init__(self, code: str) -> None:
+        if not isinstance(code, str) or code not in _JOIN_RESOLUTION_CODES:
+            raise ValueError("unknown join-resolution issue code")
+        super().__init__(code)
+        self.code = code
+
+    def __str__(self) -> str:
+        return self.code
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(code={self.code!r})"
+
+
+def _check_join_grant_id_format(join_grant_id: str) -> None:
+    """Validate join_grant_id against JoinGrantV3.grantId format."""
+    if not isinstance(join_grant_id, str):
+        raise MetadataJoinResolutionErrorV3("JOIN_GRANT_ID_INVALID")
+    if not (1 <= len(join_grant_id) <= 200):
+        raise MetadataJoinResolutionErrorV3("JOIN_GRANT_ID_INVALID")
+    if fullmatch(_GRANT_ID_PATTERN, join_grant_id) is None:
+        raise MetadataJoinResolutionErrorV3("JOIN_GRANT_ID_INVALID")
+
+
+def _resolve_join_grant_v3(
+    request: ResolveMetadataRequestV3,
+    join_grant_id: str,
+) -> tuple[PhysicalColumnRefV3, PhysicalColumnRefV3, JoinTypeV3]:
+    """Resolve a specified join grant to its physical endpoints (DEV §5.3.6).
+
+    Validates the join grant identifier, resolves both column grants
+    through the existing column-resolution chain, confirms the two
+    endpoints are distinct, and verifies exactly one snapshot
+    relationship edge matches (undirected).
+
+    Args:
+        request: V3 metadata-resolution request.
+        join_grant_id: The join grant ID to resolve.
+
+    Returns:
+        A tuple of (left_physical, right_physical, join_type).  Physical
+        names use exact snapshot spelling; left/right direction follows
+        the join grant.
+
+    Raises:
+        MetadataResolutionInputErrorV3: on input-gate failure (propagated).
+        MetadataColumnResolutionErrorV3: on column-resolution failure
+            (propagated).
+        MetadataJoinResolutionErrorV3: on join-specific failures.
+    """
+    # 0. Input gate — use the verified copy for all later steps
+    verified = _validate_resolution_input_v3(request)
+
+    # 1. Validate join_grant_id format
+    _check_join_grant_id_format(join_grant_id)
+
+    # 2. Find the join grant by exact grantId
+    join_grant: JoinGrantV3 | None = None
+    for jg in verified.project_context.join_grants:
+        if jg.grant_id == join_grant_id:
+            join_grant = jg
+            break
+    if join_grant is None:
+        raise MetadataJoinResolutionErrorV3("JOIN_GRANT_NOT_FOUND")
+
+    # 3. Resolve both column grants via the existing helper.
+    # Input/column failures propagate with their original codes.
+    left_physical = _resolve_column_grant_v3(verified, join_grant.left_column_grant_id)
+    right_physical = _resolve_column_grant_v3(verified, join_grant.right_column_grant_id)
+
+    # 4. Normalize both endpoints and reject identical endpoints.
+    snapshot = verified.metadata_snapshot
+    case_sensitive = snapshot.identifier_case_sensitivity == "sensitive"
+
+    left_key = (
+        _normalize_identifier(left_physical.schema_name, case_sensitive),
+        _normalize_identifier(left_physical.relation_name, case_sensitive),
+        _normalize_identifier(left_physical.column_name, case_sensitive),
+    )
+    right_key = (
+        _normalize_identifier(right_physical.schema_name, case_sensitive),
+        _normalize_identifier(right_physical.relation_name, case_sensitive),
+        _normalize_identifier(right_physical.column_name, case_sensitive),
+    )
+    if left_key == right_key:
+        raise MetadataJoinResolutionErrorV3("JOIN_ENDPOINTS_IDENTICAL")
+
+    # 5. Find matching snapshot relationship edges (undirected).
+    # A–B and B–A are the same physical relationship.
+    matching_edges: list[GovernedRelationshipV3] = []
+    for rel in snapshot.relationships:
+        rel_left_key = (
+            _normalize_identifier(rel.left_column.schema_name, case_sensitive),
+            _normalize_identifier(rel.left_column.relation_name, case_sensitive),
+            _normalize_identifier(rel.left_column.column_name, case_sensitive),
+        )
+        rel_right_key = (
+            _normalize_identifier(rel.right_column.schema_name, case_sensitive),
+            _normalize_identifier(rel.right_column.relation_name, case_sensitive),
+            _normalize_identifier(rel.right_column.column_name, case_sensitive),
+        )
+        # Undirected match: (left,right) or (right,left)
+        if (left_key == rel_left_key and right_key == rel_right_key) or (
+            left_key == rel_right_key and right_key == rel_left_key
+        ):
+            matching_edges.append(rel)
+
+    if len(matching_edges) == 0:
+        raise MetadataJoinResolutionErrorV3("JOIN_RELATIONSHIP_NOT_FOUND")
+    if len(matching_edges) > 1:
+        raise MetadataJoinResolutionErrorV3("JOIN_RELATIONSHIP_AMBIGUOUS")
+
+    # 6. Return left, right, join_type (direction preserved from the grant).
+    return left_physical, right_physical, JoinTypeV3(join_grant.join_type)
+
+
+# ---------------------------------------------------------------------------
+# Join-closure selection (DEV §5.3.6)
+# ---------------------------------------------------------------------------
+
+_JOIN_CLOSURE_CODES: frozenset[str] = frozenset(
+    {
+        "JOIN_CLOSURE_DISCONNECTED",
+        "JOIN_CLOSURE_AMBIGUOUS",
+    }
+)
+
+
+class MetadataJoinClosureErrorV3(Exception):
+    """Stable neutral error for V3 join-closure selection.
+
+    Carries only the issue code. Never carries raw grant IDs, object names,
+    payloads, or original exceptions.
+    """
+
+    def __init__(self, code: str) -> None:
+        if not isinstance(code, str) or code not in _JOIN_CLOSURE_CODES:
+            raise ValueError("unknown join-closure issue code")
+        super().__init__(code)
+        self.code = code
+
+    def __str__(self) -> str:
+        return self.code
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(code={self.code!r})"
+
+
+def _select_join_closure_v3(
+    request: ResolveMetadataRequestV3,
+) -> tuple[str, ...]:
+    """Select the authorized join closure (DEV §5.3.6).
+
+    Determines the set of join grants that connect all relations required
+    by the resolved fields.  Follows the deterministic connectivity
+    principles of the existing V2 algorithm.
+
+    Args:
+        request: V3 metadata-resolution request.
+
+    Returns:
+        A tuple of selected join grant IDs sorted in ascending
+        lexicographic order.  Returns an empty tuple when there is
+        only one (or zero) required relation.
+
+    Raises:
+        MetadataResolutionInputErrorV3: on input-gate failure (propagated).
+        MetadataBindingResolutionErrorV3: on field/entity-key failure
+            (propagated).
+        MetadataColumnResolutionErrorV3: on column-resolution failure
+            (propagated).
+        MetadataJoinResolutionErrorV3: when any individual join grant
+            fails validation (propagated).
+        MetadataJoinClosureErrorV3: when the required relations cannot
+            be connected (``JOIN_CLOSURE_DISCONNECTED``) or when multiple
+            valid closures exist (``JOIN_CLOSURE_AMBIGUOUS``).
+    """
+    # 0. Input gate — use the verified copy for all later steps
+    verified = _validate_resolution_input_v3(request)
+
+    # 1. Resolve fields and entity keys to collect required relations.
+    resolved_fields, _ = _resolve_fields_and_entity_keys_v3(verified)
+
+    snapshot = verified.metadata_snapshot
+    case_sensitive = snapshot.identifier_case_sensitivity == "sensitive"
+
+    # Collect required relations from all resolved field physical references.
+    required_relations: set[tuple[str, str]] = set()
+    for field in resolved_fields:
+        required_relations.add(
+            (
+                _normalize_identifier(field.schema_name, case_sensitive),
+                _normalize_identifier(field.relation_name, case_sensitive),
+            )
+        )
+
+    # 2. Validate every join grant in deterministic (grantId ascending) order.
+    # Any failure propagates with its original code — no grant is skipped.
+    # This gate runs BEFORE the single-relation early return so that all
+    # grants are always validated regardless of the required-relation count.
+    join_grants_by_id = sorted(verified.project_context.join_grants, key=lambda g: g.grant_id)
+    validated: list[tuple[JoinGrantV3, tuple[str, str], tuple[str, str]]] = []
+    for jg in join_grants_by_id:
+        left_phys, right_phys, _ = _resolve_join_grant_v3(verified, jg.grant_id)
+        left_relation = (
+            _normalize_identifier(left_phys.schema_name, case_sensitive),
+            _normalize_identifier(left_phys.relation_name, case_sensitive),
+        )
+        right_relation = (
+            _normalize_identifier(right_phys.schema_name, case_sensitive),
+            _normalize_identifier(right_phys.relation_name, case_sensitive),
+        )
+        validated.append((jg, left_relation, right_relation))
+
+    # 3. Single relation (or none) needs no joins.
+    # Placed AFTER grant validation so every grant is always checked.
+    if len(required_relations) <= 1:
+        return ()
+
+    # 4. Keep only candidates that connect two distinct required relations.
+    candidates: list[JoinGrantV3] = []
+    for jg, left_relation, right_relation in validated:
+        if (
+            left_relation != right_relation
+            and left_relation in required_relations
+            and right_relation in required_relations
+        ):
+            candidates.append(jg)
+
+    # 5. Build an undirected connectivity graph over required relations.
+    adjacency: dict[tuple[str, str], set[tuple[str, str]]] = {
+        relation: set() for relation in required_relations
+    }
+    for jg, left_relation, right_relation in validated:
+        if jg in candidates:
+            adjacency[left_relation].add(right_relation)
+            adjacency[right_relation].add(left_relation)
+
+    # 6. Check connectivity via traversal.
+    start = min(required_relations)
+    seen: set[tuple[str, str]] = set()
+    pending = [start]
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        pending.extend(sorted(adjacency[current] - seen))
+
+    if seen != required_relations:
+        raise MetadataJoinClosureErrorV3("JOIN_CLOSURE_DISCONNECTED")
+
+    # 7. Check for ambiguity: edges must equal relations - 1.
+    if len(candidates) != len(required_relations) - 1:
+        raise MetadataJoinClosureErrorV3("JOIN_CLOSURE_AMBIGUOUS")
+
+    # 8. Return selected grant IDs in ascending order.
+    return tuple(sorted(jg.grant_id for jg in candidates))

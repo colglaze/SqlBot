@@ -27,6 +27,7 @@ from release_sql_bot.domain.project_bindings_v3 import (
     ApprovalRecordV3,
     GovernedMetadataSnapshotV3,
     ProjectBindingContextV3,
+    ResolveMetadataRequestV3,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -406,6 +407,56 @@ def valid_metadata_resolved_report_v3_wire() -> dict[str, object]:
         "usageTraceabilitySha256": "e" * 64,
         "issues": [],
     }
+
+
+def _reclose_context_approval_from_wire(
+    req_wire: dict[str, object],
+) -> None:
+    """Reclose context and approval hashes in-place (snapshot already closed)."""
+    from release_sql_bot.domain.project_bindings_v3 import (
+        ApprovalRecordV3,
+        ProjectBindingContextV3,
+    )
+
+    context = ProjectBindingContextV3.model_validate(req_wire["projectContext"])
+    req_wire["projectContext"]["contentSha256"] = canonical_content_sha256(context)
+
+    req_wire["approvalRecord"]["contextRef"]["sha256"] = req_wire["projectContext"]["contentSha256"]
+    req_wire["approvalRecord"]["snapshotRef"]["sha256"] = req_wire["metadataSnapshot"][
+        "contentSha256"
+    ]
+    approval = ApprovalRecordV3.model_validate(req_wire["approvalRecord"])
+    req_wire["approvalRecord"]["contentSha256"] = canonical_content_sha256(approval)
+
+
+def _reclose_all_hashes_from_wire(
+    req_wire: dict[str, object],
+) -> ResolveMetadataRequestV3:
+    """Reclose snapshot/context/approval/payload hashes from a modified wire."""
+    from release_sql_bot.domain.fact_bindings_v3 import FactBindingRequestV3
+    from release_sql_bot.domain.project_bindings_v3 import GovernedMetadataSnapshotV3
+
+    snapshot = GovernedMetadataSnapshotV3.model_validate(req_wire["metadataSnapshot"])
+    req_wire["metadataSnapshot"]["contentSha256"] = canonical_content_sha256(snapshot)
+
+    req_wire["projectContext"]["metadataSnapshotRef"]["sha256"] = req_wire["metadataSnapshot"][
+        "contentSha256"
+    ]
+    context = ProjectBindingContextV3.model_validate(req_wire["projectContext"])
+    req_wire["projectContext"]["contentSha256"] = canonical_content_sha256(context)
+
+    req_wire["approvalRecord"]["snapshotRef"]["sha256"] = req_wire["metadataSnapshot"][
+        "contentSha256"
+    ]
+    req_wire["approvalRecord"]["contextRef"]["sha256"] = req_wire["projectContext"]["contentSha256"]
+    approval = ApprovalRecordV3.model_validate(req_wire["approvalRecord"])
+    req_wire["approvalRecord"]["contentSha256"] = canonical_content_sha256(approval)
+
+    req_wire["handoffClosure"]["payload"] = req_wire["bindingRequest"]
+    req_wire["handoffClosure"]["payloadSha256"] = canonical_sha256(
+        FactBindingRequestV3.model_validate(req_wire["bindingRequest"])
+    )
+    return ResolveMetadataRequestV3.model_validate(req_wire)
 
 
 def valid_blocked_report_v3_wire() -> dict[str, object]:

@@ -70,9 +70,9 @@
    提交树原始字节哈希与 SqlBot 运行时规范化哈希分别按
    `docs/specs/fact-binding-request-3.0.0-source.json` 登记，不能互相冒充。两端 JSON 结构或契约
    身份不一致时立即停止并另立契约差异评审。2026-09-09 T0 已完成上游提交与三类哈希登记
-   （commit `bad6fd3…`，提交树 `0e39c7ac…`，运行时 `2c5e4603…`，提交 `e3b00b2`），来源锚点
-   阻塞解除；M0 规划批次已进入提交 `61a377f`；本组 REQ/BIZ/DEV 已由用户批准并落档，M0 状态为
-   `completed`；本次批准落档及修订尚未提交。
+（commit `bad6fd3…`，提交树 `0e39c7ac…`，运行时 `2c5e4603…`，提交 `e3b00b2`），来源锚点
+阻塞解除；M0 规划批次已进入提交 `61a377f`；本组 REQ/BIZ/DEV 已由用户批准并落档，M0 状态为
+`completed`。M1/M2 实现已提交（`189daca`、`29716b0`、`4f0f45c`）；本轮文档修订尚未提交。
 10. **424 passed 是离线合成基线。** SqlBot 当前测试基线全部由合成脱敏 fixture 驱动；它证明
     契约与门禁离线行为，不构成真实数据验证，不得在任何文档或进度中表述为真实验证。
 11. **Phase 2G V3 输入必须绑定 handoff 内容闭包和批准记录，外部副作用路径必须仓储背书。**
@@ -152,7 +152,18 @@
 [DEV-20260906-04](../architecture/DEV-20260906-04-v3-downstream-pipeline-alignment.md)
 第 14 节。任一未决问题在其阻断的里程碑前必须由对应 owner 明确；未确认时保持阻断。
 
-> **2026-09-10 实施状态说明**：M1 契约层已完成（`completed`），
+> **2026-09-10 历史观察（保留用于审计）**：当时 M1 契约层已完成（`completed`），
 > 五个实现文件全部完成，全量 610 passed。M2 元数据解析仍为纯计算
 > （不读取仓储、不注入 provider）；真实仓储背书位于后续有副作用的
-> 应用服务路径（M3 生成前完成）。本轮修改未提交。
+> 应用服务路径（M3 生成前完成）。
+>
+> **当前状态**：M1 已完成（`completed`，提交 `189daca`、`29716b0`）；
+> M2 为 `in_progress`（提交 `4f0f45c`：输入门禁 `_validate_resolution_input_v3`、
+> column grant 解析 `_resolve_column_grant_v3`、字段/实体键授权闭包
+> `_resolve_fields_and_entity_keys_v3`、filters 物理字段解析
+> `_resolve_filters_v3`、aggregation 授权引用解析 `_resolve_aggregation_v3`、
+> timeRange 时间字段授权解析 `_resolve_time_range_v3`、
+> 指定 join grant 物理授权解析 `_resolve_join_grant_v3` 已完成；
+> 剩余 多关系连接选择、完整 join 输出、公开 `resolve_metadata_v3` 编排及报告组装；
+> `entityType`/`grain` 映射待澄清，见 DEV §14 开放问题第 7 项）。
+> 辅助函数完成不等于完整解析服务完成，M2 不标记 `completed`。
