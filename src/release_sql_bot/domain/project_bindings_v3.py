@@ -270,8 +270,39 @@ class JoinGrantV3(_V3Base):
         return self
 
 
+# ---------------------------------------------------------------------------
+# New in schemaVersion 1.1.0: entity-grain mapping + join-authorization evidence
+# ---------------------------------------------------------------------------
+
+
+class EntityGrainAuthorizationV3(_V3Base):
+    """Context-level authorization mapping (entityType, grain) → relationGrantId.
+
+    Approved as part of the governed metadata snapshot context. The mapping
+    itself is traceable via the context content hash and approval closure;
+    it does NOT carry per-request evidence.
+    """
+
+    entity_type: str = Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=100)
+    grain: str = Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=100)
+    relation_grant_id: str = Field(pattern=_STABLE_ID_PATTERN, max_length=200)
+
+
+class JoinAuthorizationEvidenceV3(_V3Base):
+    """Per-request JOIN evidence association, stored in versioned context.
+
+    Binds a specific request (by requestId + payloadSha256) to the evidence
+    justifying each authorized join grant. Part of the context content hash.
+    """
+
+    request_id: str = Field(min_length=3, max_length=420)
+    payload_sha256: str = Field(pattern=_SHA256_PATTERN)
+    join_grant_id: str = Field(pattern=_STABLE_ID_PATTERN, max_length=200)
+    evidence_ids: list[str] = Field(min_length=1)
+
+
 class ProjectBindingContextV3(_V3Base):
-    schema_version: Literal["1.0.0"]
+    schema_version: Literal["1.1.0"]
     context_id: str = Field(pattern=_STABLE_ID_PATTERN, max_length=200)
     context_version: int = Field(ge=1)
     status: ContextStatusWire
@@ -285,6 +316,8 @@ class ProjectBindingContextV3(_V3Base):
     field_binding_authorizations: list[FieldBindingAuthorizationV3] = Field(min_length=1)
     entity_key_authorizations: list[EntityKeyAuthorizationV3]
     join_grants: list[JoinGrantV3]
+    entity_grain_authorizations: list[EntityGrainAuthorizationV3] = Field(min_length=1)
+    join_authorization_evidence: list[JoinAuthorizationEvidenceV3]
     approval_ref: ApprovalRefV3
     content_sha256: str = Field(pattern=_SHA256_PATTERN)
 
@@ -322,6 +355,15 @@ class ProjectBindingContextV3(_V3Base):
             raise ValueError(
                 "entityKeyAuthorizations must have unique (requestId, parameterName, fieldId)"
             )
+        # New field uniqueness constraints (schemaVersion 1.1.0+)
+        eg_keys = [(item.entity_type, item.grain) for item in self.entity_grain_authorizations]
+        if len(eg_keys) != len(set(eg_keys)):
+            raise ValueError("entityGrainAuthorizations must have unique (entityType, grain)")
+        je_keys = [
+            (item.request_id, item.join_grant_id) for item in self.join_authorization_evidence
+        ]
+        if len(je_keys) != len(set(je_keys)):
+            raise ValueError("joinAuthorizationEvidence must have unique (requestId, joinGrantId)")
         return self
 
 

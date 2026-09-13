@@ -57,6 +57,8 @@ def test_check_config_prints_safe_summary(capsys, tmp_path, monkeypatch) -> None
         "deepseek_max_retries",
         "candidate_store_enabled",
         "candidate_store_configured",
+        "candidate_store_v3_enabled",
+        "candidate_store_v3_configured",
         "sql_dialect",
         "temp_table_allowed",
     }

@@ -3,7 +3,7 @@
 `docs/` 是项目业务意图、技术方案、数据契约、决策和进度的事实来源。当前实现以事实级 Agent 2 基线为准。
 
 ## 阅读顺序
-1. [当前进度](progress/PROG-20260911.md)
+1. [当前进度](progress/PROG-20260912.md)
 2. [FactBindingRequest 3.0.0 下游管线对齐需求](requirements/REQ-20260906-04-v3-downstream-pipeline-alignment.md)
 3. [V3 下游管线权威边界与复用决策](decisions/BIZ-20260906-03-v3-downstream-authority-boundary.md)
 4. [FactBindingRequest 3.0.0 下游管线对齐设计与实施计划](architecture/DEV-20260906-04-v3-downstream-pipeline-alignment.md)
@@ -94,6 +94,7 @@
 
 ### 技术与交付
 
+- [PROG-20260912：V3 M3 生成切片 + M4 静态门禁 + M5 第一切片（受限 source 单关系切片，含多轮修复与离线存储）](progress/PROG-20260912.md)
 - [PROG-20260911：V3 M2 内容闭包校验、usage 追溯摘要、解析请求/报告契约与审核修复](progress/PROG-20260911.md)
 - [PROG-20260910：V3 M1 最后切片（handoff 契约、批准校验测试补缺和进度收口）](progress/PROG-20260910.md)
 - [BUG-20260910-01：BindingResolutionReportV3 报告契约缺口（blocked 输出漏洞与静默规范化）](bugs/BUG-20260910-01-v3-binding-resolution-report-contract-gaps.md)
@@ -102,6 +103,7 @@
 - [BUG-20260908-01：V3 下游契约来源登记与上游提交树不一致（行尾 / 提交状态）](bugs/BUG-20260908-01-v3-downstream-contract-source-hash-normalization.md)
 - [BUG-20260908-02：V3 上游已归档交付与主来源业务语义存在可复现差距](bugs/BUG-20260908-02-v3-upstream-fact-catalog-contract-gaps.md)
 - [DEV-20260906-04：FactBindingRequest 3.0.0 下游管线对齐设计与实施计划](architecture/DEV-20260906-04-v3-downstream-pipeline-alignment.md)
+- [DEV-20260911-01：V3 M2 剩余设计缺口分析与可实施方案（proposed）](architecture/DEV-20260911-01-v3-m2-remaining-design-gaps.md)
 - [BUG-20260906-01：V3 intake 与 Phase 4R 下游契约缺口](bugs/BUG-20260906-01-v3-phase4r-downstream-contract-gap.md)
 - [DEV-20260906-03：FactBindingRequest 3.0.0 intake 设计与实施计划](architecture/DEV-20260906-03-fact-binding-v3-intake.md)
 - [DEV-20260906-02：端到端真实候选证据编排设计与实施计划](architecture/DEV-20260906-02-real-handoff-evidence-loop-orchestration.md)

@@ -279,12 +279,30 @@ Phase 2G → 3 → 4 → 存储，并显式划定 Phase 5 对齐的边界。
 8. M0 状态验收：上游 V3 契约 commit 与来源哈希登记已于 2026-09-09 完成；本组 REQ/BIZ/DEV
    已于 2026-09-09 由用户明确批准并落档，M0 整体状态为 `completed`。
    **当前状态**：M1 已完成（`completed`，2026-09-10，提交 `189daca`、`29716b0`）；
-   M2 为 `in_progress`（提交 `4f0f45c`：输入门禁、column grant 解析、字段/实体键授权闭包、
+   M2 为 `in_progress`（共 12 个子任务已完成；当前 HEAD `77c0651`，全量 1016 passed）：
+   输入门禁、column grant 解析、字段/实体键授权闭包、
    filters 物理字段解析、aggregation 授权引用解析、
-   timeRange 时间字段授权解析、指定 join grant 物理授权解析已完成；
-   剩余 多关系连接选择、完整 join 输出、公开编排及报告组装；
-   `entityType`/`grain` 映射待澄清，见 DEV §14 开放问题第 7 项）。
+   timeRange 时间字段授权解析、指定 join grant 物理授权解析、
+   多关系授权连接闭包选择已完成；
+   剩余 完整 ResolvedJoinV3 构造（evidence_ids、方向计划）、entityType/grain 授权映射、
+   公开 `resolve_metadata_v3` 编排及报告组装；
+   `entityType`/`grain` 映射待澄清，见 DEV §14 开放问题第 7 项。
+   辅助函数完成不等于完整解析服务完成，M2 不标记 `completed`。
+   剩余设计缺口分析见
+   [DEV-20260911-01](../architecture/DEV-20260911-01-v3-m2-remaining-design-gaps.md)（proposed）。
    来源登记完成不等于业务表达 vNext、context/snapshot 批准或真实生成完成。
+
+> **proposed 变更关联（2026-09-11，二次修订）**：
+> [DEV-20260911-01](../architecture/DEV-20260911-01-v3-m2-remaining-design-gaps.md) 提出以下
+> proposed 变更，**尚未批准**，不影响本 REQ 既 approved 内容：
+> - 新增 `EntityGrainAuthorizationV3`（context 级必填）— 影响本需求第 5.1 节上下文契约
+> - 新增 `JoinAuthorizationEvidenceV3` 进入版本化 context（`requestId + payloadSha256 + joinGrantId + evidenceIds`）
+>   — **影响 context 持久契约**（schemaVersion "1.0.0" → "1.1.0"）
+> - 删除原提案 `accumulated_side` 字段（LEFT JOIN 保留侧完全由 grant left 确定）
+> - 新增 `JOIN_PLAN_DIRECTION_CONFLICT` 错误码（方向不兼容时阻断）
+> - 统一编排边界：wire 结构失败 → 中性异常；完整结构成功后 → blocked 报告
+> - `resolve_metadata_v3` 无旁路参数；证据关联从 context 读取，确定性重算
+> - `resolutionHashes` 在成功/失败报告中均从明确对象计算（不伪造、不占位）
 
 ## 8. 阻断项
 

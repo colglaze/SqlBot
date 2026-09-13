@@ -114,6 +114,23 @@ class Settings(BaseSettings):
         max_length=120,
     )
 
+    # V3 candidate template persistence (insert-only, independent collection).
+    # Shares the MongoDB URI/TLS/timeout config with the V2 store but uses a
+    # separate collection (sql_template_candidates_v3 by default).
+    candidate_store_v3_enabled: bool = False
+    candidate_store_v3_database: str = Field(
+        default="release_sql_bot",
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
+        min_length=1,
+        max_length=63,
+    )
+    candidate_store_v3_collection: str = Field(
+        default="sql_template_candidates_v3",
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
+        min_length=1,
+        max_length=120,
+    )
+
     sql_dialect: Literal["sqlserver"] = "sqlserver"
     temp_table_allowed: bool = False
 
@@ -135,6 +152,16 @@ class Settings(BaseSettings):
         if self.candidate_store_enabled and not self._has_secret(self.mongodb_uri):
             raise ValueError(
                 "A MongoDB URI is required when candidate template persistence is enabled."
+            )
+        if self.candidate_store_v3_enabled and not self._has_secret(self.mongodb_uri):
+            raise ValueError(
+                "A MongoDB URI is required when V3 candidate template persistence is enabled."
+            )
+        if self.candidate_store_database == self.candidate_store_v3_database and (
+            self.candidate_store_collection == self.candidate_store_v3_collection
+        ):
+            raise ValueError(
+                "V2 and V3 candidate stores must not target the same database and collection."
             )
         self._validate_sqlserver_validation_safety()
         return self
@@ -262,6 +289,8 @@ class Settings(BaseSettings):
             "deepseek_max_retries": self.deepseek_max_retries,
             "candidate_store_enabled": self.candidate_store_enabled,
             "candidate_store_configured": self._has_secret(self.mongodb_uri),
+            "candidate_store_v3_enabled": self.candidate_store_v3_enabled,
+            "candidate_store_v3_configured": self._has_secret(self.mongodb_uri),
             "sql_dialect": self.sql_dialect,
             "temp_table_allowed": self.temp_table_allowed,
         }

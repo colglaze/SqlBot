@@ -36,6 +36,18 @@ Implemented capabilities:
   snapshot relationship edge matches (undirected) (DEV §5.3.6).  This
   helper only proves the specified grant's physical closure; it does NOT
   select join paths, generate SQL, or prove join correctness.
+* Entity-grain mapping ``_resolve_entity_grain_mapping_v3``: looks up the
+  (entityType, grain) authorization in the context (schemaVersion 1.1.0),
+  verifies the mapped relation grant exists, and checks consistency with
+  all resolved entity-key relation grants.
+* JOIN-evidence closure ``_resolve_join_evidence_v3``: verifies that every
+  selected join grant has a unique evidence association for the current
+  request, with payload hash and evidence-reference integrity.
+* JOIN-plan resolution ``_resolve_joins_v3``: constructs a restricted
+  authorization connection plan using BFS from the factValue relation
+  over selected join grants, with LEFT JOIN direction enforcement.
+* Public orchestrator ``resolve_metadata_v3``: integrates all helpers,
+  assembles ``BindingResolutionReportV3`` (success or blocked).
 
 Success proves only that the input is internally consistent and that the
 referenced physical objects exist in the carried snapshot; it does NOT prove
@@ -53,7 +65,14 @@ from __future__ import annotations
 from re import fullmatch
 from typing import Any
 
-from release_sql_bot.application.canonical import canonical_json_bytes
+from release_sql_bot.application.canonical import (
+    canonical_content_sha256,
+    canonical_json_bytes,
+    canonical_sha256,
+)
+from release_sql_bot.application.usage_traceability_v3 import (
+    compute_usage_traceability_sha256_v3,
+)
 from release_sql_bot.application.validate_approval_closure_v3 import (
     validate_approval_closure_v3,
 )
@@ -65,13 +84,16 @@ from release_sql_bot.domain.handoff_closure_v3 import (
 )
 from release_sql_bot.domain.project_bindings_v3 import (
     ApprovalClosureValidationErrorV3,
+    BindingResolutionReportV3,
     ColumnGrantV3,
+    EntityGrainAuthorizationV3,
     EntityKeyAuthorizationV3,
     FieldBindingAuthorizationV3,
     GovernedColumnV3,
     GovernedMetadataSnapshotV3,
     GovernedRelationshipV3,
     GovernedRelationV3,
+    JoinAuthorizationEvidenceV3,
     JoinGrantV3,
     JoinTypeV3,
     PhysicalColumnRefV3,
@@ -80,6 +102,7 @@ from release_sql_bot.domain.project_bindings_v3 import (
     ResolvedEntityKeyV3,
     ResolvedFieldV3,
     ResolvedFilterV3,
+    ResolvedJoinV3,
     ResolvedTimeRangeV3,
     ResolveMetadataRequestV3,
 )
@@ -859,6 +882,828 @@ _JOIN_RESOLUTION_CODES: frozenset[str] = frozenset(
         "JOIN_RELATIONSHIP_AMBIGUOUS",
     }
 )
+
+# ---------------------------------------------------------------------------
+# Entity-grain mapping resolution (DEV §5.3.2 extension, schemaVersion 1.1.0)
+# ---------------------------------------------------------------------------
+
+_ENTITY_GRAIN_RESOLUTION_CODES: frozenset[str] = frozenset(
+    {
+        "ENTITY_GRAIN_MAPPING_MISSING",
+        "ENTITY_GRAIN_GRANT_INVALID",
+        "ENTITY_GRAIN_RELATION_MISMATCH",
+    }
+)
+
+
+class MetadataEntityResolutionErrorV3(Exception):
+    """Stable neutral error for V3 entity-grain mapping resolution.
+
+    Carries only the issue code. Never carries raw entity types, grant IDs,
+    object names, payloads, or original exceptions.
+    """
+
+    def __init__(self, code: str) -> None:
+        if not isinstance(code, str) or code not in _ENTITY_GRAIN_RESOLUTION_CODES:
+            raise ValueError("unknown entity-grain resolution issue code")
+        super().__init__(code)
+        self.code = code
+
+    def __str__(self) -> str:
+        return self.code
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(code={self.code!r})"
+
+
+def _resolve_entity_grain_mapping_v3(
+    request: ResolveMetadataRequestV3,
+) -> tuple[EntityGrainAuthorizationV3, ...]:
+    """Resolve entityType/grain → authorized relation mapping (DEV §5.3.2 ext).
+
+    Re-validates input consistency, resolves field/entity-key bindings, then
+    looks up the (entityType, grain) mapping in the context. Verifies the
+    mapped relation grant exists and is consistent with ALL resolved entity-key
+    relation grants.
+
+    Args:
+        request: V3 metadata-resolution request.
+
+    Returns:
+        A tuple of matched ``EntityGrainAuthorizationV3`` entries.
+
+    Raises:
+        MetadataResolutionInputErrorV3: on input-gate failure (propagated).
+        MetadataBindingResolutionErrorV3: on field/entity-key failure (propagated).
+        MetadataColumnResolutionErrorV3: on column-grant failure (propagated).
+        MetadataEntityResolutionErrorV3: on the first failing entity-grain check.
+    """
+    # 0. Input gate — use the verified copy for all later steps
+    verified = _validate_resolution_input_v3(request)
+
+    # 1. Resolve fields and entity keys (re-validates + authorizes)
+    _, entity_keys = _resolve_fields_and_entity_keys_v3(verified)
+
+    # If there are no entity keys, no mapping is required
+    if not entity_keys:
+        return ()
+
+    project_context = verified.project_context
+    binding_request = verified.binding_request
+
+    entity_req = binding_request.query_requirements.entity
+    entity_type = entity_req.entity_type
+    grain = entity_req.grain
+
+    # 2. Look up (entityType, grain) mapping — exact match
+    matched: EntityGrainAuthorizationV3 | None = None
+    for ega in project_context.entity_grain_authorizations:
+        if ega.entity_type == entity_type and ega.grain == grain:
+            matched = ega
+            break
+
+    if matched is None:
+        raise MetadataEntityResolutionErrorV3("ENTITY_GRAIN_MAPPING_MISSING")
+
+    # 3. Verify the mapped relation grant exists in the context
+    # (application-layer check, NOT structure-layer)
+    relation_grant_ids = {rg.grant_id for rg in project_context.relation_grants}
+    if matched.relation_grant_id not in relation_grant_ids:
+        raise MetadataEntityResolutionErrorV3("ENTITY_GRAIN_GRANT_INVALID")
+
+    # 4. Verify consistency: ALL resolved entity keys must map to the same
+    #    relation grant as the entity-grain mapping
+    for ek in entity_keys:
+        # Find the column grant for this entity key
+        col_grant: ColumnGrantV3 | None = None
+        for cg in project_context.column_grants:
+            if cg.grant_id == ek.column_grant_id:
+                col_grant = cg
+                break
+        if col_grant is None:
+            # Defensive: should not happen due to entity-key resolution
+            raise MetadataEntityResolutionErrorV3("ENTITY_GRAIN_RELATION_MISMATCH")
+        if col_grant.relation_grant_id != matched.relation_grant_id:
+            raise MetadataEntityResolutionErrorV3("ENTITY_GRAIN_RELATION_MISMATCH")
+
+    return (matched,)
+
+
+# ---------------------------------------------------------------------------
+# JOIN authorization-evidence closure (DEV §5.3.6 extension, schemaVersion 1.1.0)
+# ---------------------------------------------------------------------------
+
+_JOIN_EVIDENCE_CODES: frozenset[str] = frozenset(
+    {
+        "JOIN_EVIDENCE_ASSOCIATION_NOT_FOUND",
+        "JOIN_EVIDENCE_PAYLOAD_HASH_MISMATCH",
+        "JOIN_GRANT_EVIDENCE_INVALID",
+        "JOIN_REQUEST_NOT_IN_CONTEXT",
+    }
+)
+
+
+class MetadataJoinEvidenceErrorV3(Exception):
+    """Stable neutral error for V3 JOIN-authorization-evidence resolution.
+
+    Carries only the issue code. Never carries raw IDs, hashes, object names,
+    payloads, or original exceptions.
+    """
+
+    def __init__(self, code: str) -> None:
+        if not isinstance(code, str) or code not in _JOIN_EVIDENCE_CODES:
+            raise ValueError("unknown join-evidence issue code")
+        super().__init__(code)
+        self.code = code
+
+    def __str__(self) -> str:
+        return self.code
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(code={self.code!r})"
+
+
+def _resolve_join_evidence_v3(
+    request: ResolveMetadataRequestV3,
+) -> tuple[JoinAuthorizationEvidenceV3, ...]:
+    """Resolve JOIN authorization-evidence closure (DEV §5.3.6 ext).
+
+    Re-validates input consistency, resolves the selected join grants via
+    ``_select_join_closure_v3``, then verifies that every selected grant has
+    a unique evidence association for the current request.
+
+    Args:
+        request: V3 metadata-resolution request.
+
+    Returns:
+        A tuple of ``JoinAuthorizationEvidenceV3`` for the selected grants,
+        sorted by ``grant_id``. ``evidence_ids`` preserve original order.
+
+    Raises:
+        MetadataResolutionInputErrorV3: on input-gate failure (propagated).
+        MetadataBindingResolutionErrorV3: on field/entity-key failure (propagated).
+        MetadataColumnResolutionErrorV3: on column-grant failure (propagated).
+        MetadataJoinResolutionErrorV3: on individual join-grant failure (propagated).
+        MetadataJoinClosureErrorV3: on join-closure failure (propagated).
+        MetadataEntityResolutionErrorV3: on entity-grain failure (propagated).
+        MetadataJoinEvidenceErrorV3: on the first failing evidence check.
+    """
+    # 0. Input gate — use the verified copy for all later steps
+    verified = _validate_resolution_input_v3(request)
+
+    # 1. Resolve entity-grain mapping (re-validates + authorizes)
+    _resolve_entity_grain_mapping_v3(verified)
+
+    # 2. Resolve the selected join closure (validates ALL physical join grants)
+    selected_grants: tuple[str, ...] = _select_join_closure_v3(verified)
+
+    project_context = verified.project_context
+    binding_request = verified.binding_request
+    current_request_id = binding_request.request_id
+
+    # Build local lookup sets from the context
+    context_request_ids = set(project_context.request_ids)
+    context_grant_ids = {jg.grant_id for jg in project_context.join_grants}
+
+    # Sort associations by (request_id, join_grant_id) for deterministic checking
+    sorted_associations = sorted(
+        project_context.join_authorization_evidence,
+        key=lambda jae: (jae.request_id, jae.join_grant_id),
+    )
+
+    # 3. Local reference checks for ALL evidence associations (deterministic order)
+    for jae in sorted_associations:
+        if jae.request_id not in context_request_ids:
+            raise MetadataJoinEvidenceErrorV3("JOIN_REQUEST_NOT_IN_CONTEXT")
+        if jae.join_grant_id not in context_grant_ids:
+            # Reuse existing JOIN_GRANT_NOT_FOUND
+            raise MetadataJoinResolutionErrorV3("JOIN_GRANT_NOT_FOUND")
+
+    # 4. Content checks for current request's associations (deterministic order)
+    current_evidence: list[JoinAuthorizationEvidenceV3] = []
+    current_payload_hash = canonical_sha256(binding_request)
+    valid_evidence_ids = {e.evidence_id for e in binding_request.evidence}
+
+    for jae in sorted_associations:
+        if jae.request_id == current_request_id:
+            if jae.payload_sha256 != current_payload_hash:
+                raise MetadataJoinEvidenceErrorV3("JOIN_EVIDENCE_PAYLOAD_HASH_MISMATCH")
+            for eid in jae.evidence_ids:
+                if eid not in valid_evidence_ids:
+                    raise MetadataJoinEvidenceErrorV3("JOIN_GRANT_EVIDENCE_INVALID")
+            current_evidence.append(jae)
+
+    # 5. Coverage check: each selected grant must have exactly one association
+    if selected_grants:
+        evidence_by_grant = {jae.join_grant_id: jae for jae in current_evidence}
+        for gid in selected_grants:
+            if gid not in evidence_by_grant:
+                raise MetadataJoinEvidenceErrorV3("JOIN_EVIDENCE_ASSOCIATION_NOT_FOUND")
+
+    # 6. Return selected associations sorted by grantId, preserving evidence order
+    if not selected_grants:
+        return ()
+
+    evidence_by_grant = {jae.join_grant_id: jae for jae in current_evidence}
+    result = tuple(evidence_by_grant[gid] for gid in sorted(selected_grants))
+    return result
+
+
+# ---------------------------------------------------------------------------
+# JOIN plan resolution (DEV §5.3.6 extension, schemaVersion 1.1.0)
+# ---------------------------------------------------------------------------
+
+_JOIN_PLAN_CODES: frozenset[str] = frozenset(
+    {
+        "JOIN_PLAN_DIRECTION_CONFLICT",
+    }
+)
+
+
+class MetadataJoinPlanErrorV3(Exception):
+    """Stable neutral error for V3 JOIN-plan resolution.
+
+    Carries only the issue code. Never carries raw grant IDs, object names,
+    payloads, or original exceptions.
+    """
+
+    _ALLOWED_CODES: frozenset[str] = _JOIN_PLAN_CODES
+
+    def __init__(self, code: str) -> None:
+        if not isinstance(code, str) or code not in self._ALLOWED_CODES:
+            raise ValueError("unknown join-plan issue code")
+        super().__init__(code)
+        self.code = code
+
+    def __str__(self) -> str:
+        return self.code
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(code={self.code!r})"
+
+
+def _resolve_joins_v3(
+    request: ResolveMetadataRequestV3,
+) -> tuple[ResolvedJoinV3, ...]:
+    """Resolve the authorized JOIN plan (DEV §5.3.6 ext).
+
+    Constructs a restricted authorization connection plan using BFS from
+    the factValue relation over the selected join grants.
+
+    Args:
+        request: V3 metadata-resolution request.
+
+    Returns:
+        A tuple of ``ResolvedJoinV3`` in BFS discovery order.
+        Returns an empty tuple when no joins are needed.
+
+    Raises:
+        MetadataResolutionInputErrorV3: on input-gate failure (propagated).
+        MetadataBindingResolutionErrorV3: on field/entity-key failure (propagated).
+        MetadataColumnResolutionErrorV3: on column-grant failure (propagated).
+        MetadataJoinResolutionErrorV3: on individual join-grant failure (propagated).
+        MetadataJoinClosureErrorV3: on join-closure failure (propagated).
+        MetadataEntityResolutionErrorV3: on entity-grain failure (propagated).
+        MetadataJoinEvidenceErrorV3: on evidence failure (propagated).
+        MetadataJoinPlanErrorV3: on the first failing direction check.
+    """
+    # 0. Input gate — use the verified copy for all later steps
+    verified = _validate_resolution_input_v3(request)
+
+    # 1. Resolve JOIN evidence closure (validates ALL physical join grants,
+    #    selects closure, checks evidence). This also resolves entity-grain
+    #    mapping and field/entity-key bindings internally.
+    evidence_associations = _resolve_join_evidence_v3(verified)
+
+    # Build lookup: grant_id -> JoinAuthorizationEvidenceV3
+    evidence_by_grant: dict[str, JoinAuthorizationEvidenceV3] = {
+        jae.join_grant_id: jae for jae in evidence_associations
+    }
+
+    # 2. Get selected grant IDs from the evidence result
+    selected_grants: tuple[str, ...] = tuple(sorted(evidence_by_grant.keys()))
+
+    # If no grants selected, return empty after all gates have passed
+    if not selected_grants:
+        return ()
+
+    # 3. Resolve fields to find the factValue physical relation (BFS base)
+    resolved_fields, _ = _resolve_fields_and_entity_keys_v3(verified)
+    fact_value_field: ResolvedFieldV3 | None = None
+    for rf in resolved_fields:
+        if rf.field_id == "factValue":
+            fact_value_field = rf
+            break
+    if fact_value_field is None:
+        # Defensive: consumer closure guarantees factValue exists
+        raise MetadataJoinPlanErrorV3("JOIN_PLAN_DIRECTION_CONFLICT")
+
+    snapshot = verified.metadata_snapshot
+    case_sensitive = snapshot.identifier_case_sensitivity == "sensitive"
+
+    def _norm_rel(physical: PhysicalColumnRefV3) -> tuple[str, str]:
+        return (
+            _normalize_identifier(physical.schema_name, case_sensitive),
+            _normalize_identifier(physical.relation_name, case_sensitive),
+        )
+
+    base_relation = _norm_rel(
+        PhysicalColumnRefV3.model_validate(
+            {
+                "schemaName": fact_value_field.schema_name,
+                "relationName": fact_value_field.relation_name,
+                "columnName": fact_value_field.column_name,
+            }
+        )
+    )
+
+    # 4. Resolve each selected grant to get physical endpoints
+    grant_resolutions: dict[str, tuple[PhysicalColumnRefV3, PhysicalColumnRefV3, JoinTypeV3]] = {}  # noqa: E501
+    for gid in selected_grants:
+        left_phys, right_phys, join_type = _resolve_join_grant_v3(verified, gid)
+        grant_resolutions[gid] = (left_phys, right_phys, join_type)
+
+    # 5. Build adjacency list from selected grants only
+    #    Each node maps to list of (grant_id, left_relation, right_relation)
+    #    sorted by grantId for deterministic traversal
+    adjacency: dict[tuple[str, str], list[str]] = {}
+    grant_relations: dict[str, tuple[tuple[str, str], tuple[str, str]]] = {}
+
+    for gid in selected_grants:
+        left_phys, right_phys, _ = grant_resolutions[gid]
+        left_rel = _norm_rel(left_phys)
+        right_rel = _norm_rel(right_phys)
+        grant_relations[gid] = (left_rel, right_rel)
+        adjacency.setdefault(left_rel, []).append(gid)
+        adjacency.setdefault(right_rel, []).append(gid)
+
+    # Sort adjacency lists by grantId for deterministic BFS
+    for rel in adjacency:
+        adjacency[rel].sort()
+
+    # 6. BFS from base_relation
+    accumulated: set[tuple[str, str]] = {base_relation}
+    queue: list[tuple[str, str]] = [base_relation]
+    result: list[ResolvedJoinV3] = []
+
+    while queue:
+        current = queue.pop(0)
+        for gid in adjacency.get(current, ()):
+            left_rel, right_rel = grant_relations[gid]
+
+            # Determine which end is the "new" relation
+            if left_rel == current:
+                new_rel = right_rel
+            elif right_rel == current:
+                new_rel = left_rel
+            else:
+                continue  # This grant doesn't connect to current
+
+            # Skip if both ends already visited
+            if new_rel in accumulated:
+                continue
+
+            # Direction check
+            left_phys, right_phys, join_type = grant_resolutions[gid]
+
+            if str(join_type) == "left":
+                # LEFT JOIN: grant.left must be in accumulated, grant.right must be new
+                if left_rel not in accumulated or right_rel in accumulated:
+                    raise MetadataJoinPlanErrorV3("JOIN_PLAN_DIRECTION_CONFLICT")
+
+            # Resolve the grant for output (direction preserved from grant)
+            res_join = ResolvedJoinV3.model_validate(
+                {
+                    "joinGrantId": gid,
+                    "leftSchemaName": left_phys.schema_name,
+                    "leftRelationName": left_phys.relation_name,
+                    "leftColumnName": left_phys.column_name,
+                    "rightSchemaName": right_phys.schema_name,
+                    "rightRelationName": right_phys.relation_name,
+                    "rightColumnName": right_phys.column_name,
+                    "joinType": str(join_type),
+                    "evidenceIds": list(evidence_by_grant[gid].evidence_ids),
+                }
+            )
+            result.append(res_join)
+
+            # Add new relation to accumulated and queue
+            accumulated.add(new_rel)
+            queue.append(new_rel)
+
+    return tuple(result)
+
+
+# ---------------------------------------------------------------------------
+# Public orchestrator: resolve_metadata_v3 (M2 final slice)
+# ---------------------------------------------------------------------------
+
+
+class MetadataResolutionStructureErrorV3(Exception):
+    """Stable neutral error for V3 metadata-resolution structural failure.
+
+    Raised only when the request structure is so damaged that a blocked
+    report cannot be constructed. Carries only the stable code
+    ``METADATA_RESOLUTION_INPUT_STRUCTURE_INVALID``. Never carries raw IDs,
+    hashes, payloads, or original exception text.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("METADATA_RESOLUTION_INPUT_STRUCTURE_INVALID")
+        self.code = "METADATA_RESOLUTION_INPUT_STRUCTURE_INVALID"
+
+    def __str__(self) -> str:
+        return self.code
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(code={self.code!r})"
+
+
+# Static error code → (owner, message) mapping for blocked reports
+_ISSUE_MAPPING: dict[str, tuple[str, str]] = {
+    # Input gate codes
+    "METADATA_RESOLUTION_INPUT_STRUCTURE_INVALID": (
+        "sqlBot",
+        "V3 metadata-resolution request structure is invalid.",
+    ),
+    "HANDOFF_BINDING_REQUEST_MISMATCH": (
+        "sqlBot",
+        "V3 handoff closure payload does not match binding request.",
+    ),
+    "PROJECT_REF_MISMATCH": (
+        "sqlBot",
+        "V3 project reference is inconsistent between request and context.",
+    ),
+    "RULE_REF_MISMATCH": (
+        "sqlBot",
+        "V3 rule reference is inconsistent between context and binding request.",
+    ),
+    "REQUEST_NOT_IN_CONTEXT": (
+        "sqlBot",
+        "V3 binding request is not within the approved context scope.",
+    ),
+    # Handoff closure codes
+    "HANDOFF_STRUCTURE_INVALID": (
+        "sqlBot",
+        "V3 handoff closure structure is invalid.",
+    ),
+    "HANDOFF_SCHEMA_SOURCE_INVALID": (
+        "sqlBot",
+        "V3 frozen Schema source failed to load.",
+    ),
+    "HANDOFF_SCHEMA_REF_MISMATCH": (
+        "sqlBot",
+        "V3 handoff closure Schema reference mismatch.",
+    ),
+    "HANDOFF_PAYLOAD_SCHEMA_INVALID": (
+        "sqlBot",
+        "V3 handoff payload does not conform to the frozen Schema.",
+    ),
+    "HANDOFF_IDENTITY_MISMATCH": (
+        "sqlBot",
+        "V3 handoff closure identity does not match payload.",
+    ),
+    "HANDOFF_PAYLOAD_HASH_MISMATCH": (
+        "sqlBot",
+        "V3 handoff payload content hash mismatch.",
+    ),
+    # Approval closure codes
+    "APPROVAL_ID_MISMATCH": (
+        "metadataReview",
+        "V3 approval identifier is inconsistent.",
+    ),
+    "APPROVAL_POLICY_MISMATCH": (
+        "metadataReview",
+        "V3 approval policy version is inconsistent.",
+    ),
+    "APPROVAL_TIME_MISMATCH": (
+        "metadataReview",
+        "V3 approval time is inconsistent.",
+    ),
+    "APPROVAL_CONTEXT_REF_MISMATCH": (
+        "metadataReview",
+        "V3 approval context reference mismatch.",
+    ),
+    "APPROVAL_SNAPSHOT_REF_MISMATCH": (
+        "metadataReview",
+        "V3 approval snapshot reference mismatch.",
+    ),
+    "APPROVAL_CONTENT_HASH_MISMATCH": (
+        "metadataReview",
+        "V3 approval record content hash mismatch.",
+    ),
+    "APPROVAL_CONTEXT_NOT_APPROVED": (
+        "metadataReview",
+        "V3 project binding context is not approved.",
+    ),
+    "APPROVAL_SNAPSHOT_NOT_APPROVED": (
+        "metadataReview",
+        "V3 metadata snapshot is not approved.",
+    ),
+    "APPROVAL_SNAPSHOT_BINDING_MISMATCH": (
+        "metadataReview",
+        "V3 context snapshot binding is inconsistent with approval.",
+    ),
+    # Column resolution codes
+    "COLUMN_GRANT_ID_INVALID": (
+        "metadataReview",
+        "V3 column grant identifier format is invalid.",
+    ),
+    "SNAPSHOT_RELATION_AMBIGUOUS": (
+        "metadataReview",
+        "V3 metadata snapshot contains ambiguous relation identifiers.",
+    ),
+    "SNAPSHOT_COLUMN_AMBIGUOUS": (
+        "metadataReview",
+        "V3 metadata snapshot contains ambiguous column identifiers.",
+    ),
+    "COLUMN_GRANT_NOT_FOUND": (
+        "metadataReview",
+        "V3 referenced column grant is not found in the approved context.",
+    ),
+    "RELATION_GRANT_NOT_FOUND": (
+        "metadataReview",
+        "V3 referenced relation grant is not found in the approved context.",
+    ),
+    "RELATION_NOT_IN_SNAPSHOT": (
+        "metadataReview",
+        "V3 referenced relation is not found in the approved metadata snapshot.",
+    ),
+    "COLUMN_NOT_IN_SNAPSHOT": (
+        "metadataReview",
+        "V3 referenced column is not found in the approved metadata snapshot.",
+    ),
+    # Field/entity-key codes
+    "FIELD_AUTHORIZATION_MISSING": (
+        "metadataReview",
+        "V3 field binding authorization is missing.",
+    ),
+    "ENTITY_KEY_AUTHORIZATION_MISSING": (
+        "metadataReview",
+        "V3 entity-key authorization is missing.",
+    ),
+    "ENTITY_KEY_AUTHORIZATION_AMBIGUOUS": (
+        "metadataReview",
+        "V3 entity-key authorization is ambiguous.",
+    ),
+    "ENTITY_KEY_FIELD_NOT_FOUND": (
+        "metadataReview",
+        "V3 entity-key field is not found in the request.",
+    ),
+    "ENTITY_KEY_FIELD_ROLE_MISMATCH": (
+        "metadataReview",
+        "V3 entity-key field role is inconsistent.",
+    ),
+    "ENTITY_KEY_COLUMN_GRANT_MISMATCH": (
+        "metadataReview",
+        "V3 entity-key column grant is inconsistent.",
+    ),
+    # Filter codes
+    "FILTER_EVIDENCE_REFERENCE_INVALID": (
+        "metadataReview",
+        "V3 filter evidence reference is invalid.",
+    ),
+    # Entity-grain codes
+    "ENTITY_GRAIN_MAPPING_MISSING": (
+        "metadataReview",
+        "V3 entity type/grain to relation mapping is missing.",
+    ),
+    "ENTITY_GRAIN_GRANT_INVALID": (
+        "metadataReview",
+        "V3 entity type/grain mapping references an invalid relation grant.",
+    ),
+    "ENTITY_GRAIN_RELATION_MISMATCH": (
+        "metadataReview",
+        "V3 entity type/grain relation mapping is inconsistent with key column.",
+    ),
+    # JOIN evidence codes
+    "JOIN_GRANT_ID_INVALID": (
+        "metadataReview",
+        "V3 join grant identifier format is invalid.",
+    ),
+    "JOIN_GRANT_NOT_FOUND": (
+        "metadataReview",
+        "V3 referenced join grant is not found in the approved context.",
+    ),
+    "JOIN_ENDPOINTS_IDENTICAL": (
+        "metadataReview",
+        "V3 join grant endpoints are identical.",
+    ),
+    "JOIN_RELATIONSHIP_NOT_FOUND": (
+        "metadataReview",
+        "V3 join relationship is not found in the approved snapshot.",
+    ),
+    "JOIN_RELATIONSHIP_AMBIGUOUS": (
+        "metadataReview",
+        "V3 join relationship is ambiguous in the approved snapshot.",
+    ),
+    "JOIN_CLOSURE_DISCONNECTED": (
+        "metadataReview",
+        "V3 required relations cannot be connected by authorized joins.",
+    ),
+    "JOIN_CLOSURE_AMBIGUOUS": (
+        "metadataReview",
+        "V3 join closure is ambiguous; multiple valid closures exist.",
+    ),
+    "JOIN_PLAN_DIRECTION_CONFLICT": (
+        "metadataReview",
+        "V3 join plan direction conflicts with the approved LEFT JOIN preserved side.",
+    ),
+    "JOIN_EVIDENCE_ASSOCIATION_NOT_FOUND": (
+        "metadataReview",
+        "V3 join authorization evidence association is missing for the current request.",
+    ),
+    "JOIN_EVIDENCE_PAYLOAD_HASH_MISMATCH": (
+        "metadataReview",
+        "V3 join authorization evidence payload hash mismatch.",
+    ),
+    "JOIN_GRANT_EVIDENCE_INVALID": (
+        "metadataReview",
+        "V3 join grant evidence reference is invalid.",
+    ),
+    "JOIN_REQUEST_NOT_IN_CONTEXT": (
+        "metadataReview",
+        "V3 join authorization evidence references a request not in context.",
+    ),
+}
+
+
+def _build_blocked_report(
+    request: ResolveMetadataRequestV3,
+    code: str,
+) -> BindingResolutionReportV3:
+    """Build a blocked report with diagnostic hashes.
+
+    Computes resolution hashes from the actual objects (which may differ from
+    carried values when content is inconsistent). Preserves carried references
+    as-is.
+    """
+    owner, message = _ISSUE_MAPPING[code]
+    verified = _revalidate_request_structure(request)
+
+    return BindingResolutionReportV3.model_validate(
+        {
+            "schemaVersion": "1.0.0",
+            "status": "blocked",
+            "executable": False,
+            "requestRef": {
+                "requestId": verified.binding_request.request_id,
+                "ruleRef": verified.binding_request.rule_ref.model_dump(by_alias=True, mode="json"),
+                "payloadSha256": verified.handoff_closure.payload_sha256,
+            },
+            "projectRef": verified.project_ref.model_dump(by_alias=True, mode="json"),
+            "contextRef": {
+                "contextId": verified.project_context.context_id,
+                "contextVersion": verified.project_context.context_version,
+                "sha256": verified.project_context.content_sha256,
+            },
+            "snapshotRef": {
+                "snapshotId": verified.metadata_snapshot.snapshot_id,
+                "snapshotVersion": verified.metadata_snapshot.snapshot_version,
+                "sha256": verified.metadata_snapshot.content_sha256,
+            },
+            "handoffRefs": {
+                "batchSha256": verified.handoff_closure.batch_sha256,
+                "payloadSha256": verified.handoff_closure.payload_sha256,
+                "contractSchemaId": verified.handoff_closure.contract_schema_id,
+                "contractSchemaSha256": verified.handoff_closure.contract_schema_sha256,
+            },
+            "resolutionHashes": {
+                "payloadSha256": canonical_sha256(verified.binding_request),
+                "contextSha256": canonical_content_sha256(verified.project_context),
+                "snapshotSha256": canonical_content_sha256(verified.metadata_snapshot),
+            },
+            "resolvedFields": [],
+            "resolvedEntityKeys": [],
+            "resolvedFilters": [],
+            "resolvedAggregation": None,
+            "resolvedTimeRange": None,
+            "resolvedJoins": [],
+            "usageTraceabilitySha256": compute_usage_traceability_sha256_v3(
+                verified.binding_request.usages
+            ),
+            "issues": [
+                {
+                    "code": code,
+                    "owner": owner,
+                    "impact": "blocker",
+                    "message": message,
+                }
+            ],
+        }
+    )
+
+
+def resolve_metadata_v3(
+    request: ResolveMetadataRequestV3,
+) -> BindingResolutionReportV3:
+    """V3 metadata-resolution public orchestrator (Phase 2G V3).
+
+    Pure computation: no repository, provider, SQL, or environment access.
+    Re-validates all inputs, resolves physical references, and assembles
+    a ``BindingResolutionReportV3``.
+
+    Args:
+        request: V3 metadata-resolution request.
+
+    Returns:
+        BindingResolutionReportV3: either metadataResolved (success) or
+        blocked (any check failed). executable is always False.
+
+    Raises:
+        MetadataResolutionStructureErrorV3: when the request structure is so
+        damaged that a blocked report cannot be constructed. Neutral
+        exception with stable code only; never carries raw IDs, hashes,
+        or payloads.
+    """
+    # 0. Structural re-validation — must produce an independent copy
+    try:
+        verified = _revalidate_request_structure(request)
+    except MetadataResolutionInputErrorV3:
+        raise MetadataResolutionStructureErrorV3() from None
+
+    # 1-7. Sequential resolution steps (first failure stops)
+    try:
+        _validate_resolution_input_v3(verified)
+        resolved_fields, resolved_entity_keys = _resolve_fields_and_entity_keys_v3(verified)
+        resolved_filters = _resolve_filters_v3(verified)
+        resolved_aggregation = _resolve_aggregation_v3(verified)
+        resolved_time_range = _resolve_time_range_v3(verified)
+        _resolve_entity_grain_mapping_v3(verified)
+        resolved_joins = _resolve_joins_v3(verified)
+    except (
+        MetadataResolutionInputErrorV3,
+        MetadataColumnResolutionErrorV3,
+        MetadataBindingResolutionErrorV3,
+        MetadataFilterResolutionErrorV3,
+        MetadataEntityResolutionErrorV3,
+        MetadataJoinResolutionErrorV3,
+        MetadataJoinClosureErrorV3,
+        MetadataJoinEvidenceErrorV3,
+        MetadataJoinPlanErrorV3,
+    ) as exc:
+        code = exc.code
+        if code not in _ISSUE_MAPPING:
+            raise
+        return _build_blocked_report(verified, code)
+
+    # 8. Assemble success report
+    return BindingResolutionReportV3.model_validate(
+        {
+            "schemaVersion": "1.0.0",
+            "status": "metadataResolved",
+            "executable": False,
+            "requestRef": {
+                "requestId": verified.binding_request.request_id,
+                "ruleRef": verified.binding_request.rule_ref.model_dump(by_alias=True, mode="json"),
+                "payloadSha256": verified.handoff_closure.payload_sha256,
+            },
+            "projectRef": verified.project_ref.model_dump(by_alias=True, mode="json"),
+            "contextRef": {
+                "contextId": verified.project_context.context_id,
+                "contextVersion": verified.project_context.context_version,
+                "sha256": verified.project_context.content_sha256,
+            },
+            "snapshotRef": {
+                "snapshotId": verified.metadata_snapshot.snapshot_id,
+                "snapshotVersion": verified.metadata_snapshot.snapshot_version,
+                "sha256": verified.metadata_snapshot.content_sha256,
+            },
+            "handoffRefs": {
+                "batchSha256": verified.handoff_closure.batch_sha256,
+                "payloadSha256": verified.handoff_closure.payload_sha256,
+                "contractSchemaId": verified.handoff_closure.contract_schema_id,
+                "contractSchemaSha256": verified.handoff_closure.contract_schema_sha256,
+            },
+            "resolutionHashes": {
+                "payloadSha256": canonical_sha256(verified.binding_request),
+                "contextSha256": canonical_content_sha256(verified.project_context),
+                "snapshotSha256": canonical_content_sha256(verified.metadata_snapshot),
+            },
+            "resolvedFields": [rf.model_dump(by_alias=True, mode="json") for rf in resolved_fields],
+            "resolvedEntityKeys": [
+                re.model_dump(by_alias=True, mode="json") for re in resolved_entity_keys
+            ],
+            "resolvedFilters": [
+                rf.model_dump(by_alias=True, mode="json") for rf in resolved_filters
+            ],
+            "resolvedAggregation": (
+                resolved_aggregation.model_dump(by_alias=True, mode="json")
+                if resolved_aggregation is not None
+                else None
+            ),
+            "resolvedTimeRange": (
+                resolved_time_range.model_dump(by_alias=True, mode="json")
+                if resolved_time_range is not None
+                else None
+            ),
+            "resolvedJoins": [rj.model_dump(by_alias=True, mode="json") for rj in resolved_joins],
+            "usageTraceabilitySha256": compute_usage_traceability_sha256_v3(
+                verified.binding_request.usages
+            ),
+            "issues": [],
+        }
+    )
 
 
 class MetadataJoinResolutionErrorV3(Exception):

@@ -17,17 +17,21 @@
 > M0 已收口（`completed`）：上游 commit 与来源登记已于 2026-09-09 完成（提交 `e3b00b2`），
 > M0 规划批次已进入提交 `61a377f`，五项设计已由用户批准并落档。
 > M1 已完成（`completed`）。
-> M2 为 `in_progress`：已完成内容闭包校验、usage 追溯摘要、ResolveMetadataRequestV3、
-> BindingResolutionReportV3、报告契约审核修复、输入门禁内部辅助函数
-> （`_validate_resolution_input_v3`：结构重验 + 六步内容/范围门禁）、
+> M2 为 `in_progress`（共 12 个子任务已完成）：已完成内容闭包校验、usage 追溯摘要、
+> ResolveMetadataRequestV3、BindingResolutionReportV3、报告契约审核修复、
+> 输入门禁内部辅助函数（`_validate_resolution_input_v3`：结构重验 + 六步内容/范围门禁）、
 > 单 column grant 物理引用解析（`_resolve_column_grant_v3`）、
 > 字段绑定与实体键授权闭包（`_resolve_fields_and_entity_keys_v3`）、
 > filters 物理字段解析（`_resolve_filters_v3`）、
 > aggregation 授权引用解析（`_resolve_aggregation_v3`）、
 > timeRange 时间字段授权解析（`_resolve_time_range_v3`）、
-> 指定 join grant 物理授权解析（`_resolve_join_grant_v3`）；
-> 剩余 多关系连接选择、完整 join 输出、公开 `resolve_metadata_v3` 编排及报告组装。
+> 指定 join grant 物理授权解析（`_resolve_join_grant_v3`）、
+> 多关系授权连接闭包选择（`_select_join_closure_v3`）；
+> 剩余 完整 ResolvedJoinV3 构造（evidence_ids、方向计划）、entityType/grain 授权映射、
+> 公开 `resolve_metadata_v3` 编排及报告组装。
+> 当前 HEAD `77c0651`，全量 1016 passed。
 > 字段绑定/实体键辅助函数完成不等于完整解析服务完成，M2 不标记 `completed`。
+> 剩余设计缺口分析见 [DEV-20260911-01](DEV-20260911-01-v3-m2-remaining-design-gaps.md)（proposed）。
 > 历史观察见第 13 节；当前状态见第 12 节及最新 PROG。
 
 ## 1. 设计结论
@@ -1223,14 +1227,17 @@ M2 实施进度与剩余范围以本节 §12 M2 的"§5.3 八步规则实施对�
 ### M2：V3 元数据解析（Phase 2G V3）
 
 - 前置条件：M1 完成。
-- 状态：`in_progress`（内容闭包校验、usage 摘要、请求/报告契约、
+- 状态：`in_progress`（共 12 个子任务已完成；内容闭包校验、usage 摘要、请求/报告契约、
   报告契约修复、输入门禁、column grant 解析、字段/实体键授权闭包、
   filters 物理字段解析、aggregation 授权引用解析、
-  timeRange 时间字段授权解析、指定 join grant 物理授权解析已完成；
+  timeRange 时间字段授权解析、指定 join grant 物理授权解析、
+  多关系授权连接闭包选择已完成；
   `application/metadata_resolution_v3.py` 已存在；
-  公开 resolve_metadata_v3 编排、报告组装及 §5.3 步骤 2（entityType/grain
-  映射待澄清）未实现）。实施细节与剩余范围以本节
-  "§5.3 八步规则实施对应关系"表为准。
+  公开 resolve_metadata_v3 编排、报告组装、完整 ResolvedJoinV3 构造及
+  §5.3 步骤 2（entityType/grain 映射待澄清）未实现；
+  当前 HEAD `77c0651`，全量 1016 passed）。
+  实施细节与剩余范围以本节"§5.3 八步规则实施对应关系"表为准。
+  剩余设计缺口分析见 [DEV-20260911-01](DEV-20260911-01-v3-m2-remaining-design-gaps.md)（proposed）。
 - 已完成子任务：
   - `application/validate_handoff_closure_v3.py`（内容闭包纯计算校验，六组有序 fail-fast 检查）；
     `domain/handoff_closure_v3.py` 增加 `HandoffClosureValidationErrorV3`；
@@ -1295,9 +1302,11 @@ M2 实施进度与剩余范围以本节 §12 M2 的"§5.3 八步规则实施对�
     补强验收证据后当前 30 项 / 989 passed。
   - **第十二子任务已完成（2026-09-11）**：`_select_join_closure_v3`
     （多关系授权连接闭包选择：收集所需关系、逐项验证 grant、
-    无向连通性检查）；18 项单元测试通过，全量 1007 passed。
-  - 剩余工作：多关系连接选择、完整 join 输出、公开 `resolve_metadata_v3`
-    编排及报告组装未实现；
+    无向连通性检查）；原交付 18 项 / 1007 passed，
+    修复门禁绕过后当前 27 项 / 1016 passed。
+  - 剩余工作：完整 ResolvedJoinV3 构造（含 evidence_ids 与方向计划）、
+    公开 `resolve_metadata_v3` 编排及报告组装、
+    entityType/grain 授权映射未实现；
     字段绑定与实体键授权闭包辅助函数已完成，但完整解析服务与报告组装仍未实现，
     M2 不标记 `completed`；
     真实仓储背书由后续有副作用的应用服务在生成/存储前完成。
@@ -1311,7 +1320,7 @@ M2 实施进度与剩余范围以本节 §12 M2 的"§5.3 八步规则实施对�
   | 4. filters | ✅ 辅助函数完成，尚未集成完整解析服务 | `_resolve_filters_v3`（`application/metadata_resolution_v3.py`）；30 项单元测试（`test_metadata_resolution_v3_filters.py`） |
   | 5. aggregation | ✅ 辅助函数完成，尚未集成完整解析服务 | `_resolve_aggregation_v3`（`application/metadata_resolution_v3.py`）；32 项单元测试（`test_metadata_resolution_v3_aggregation.py`） |
   | 6. timeRange | ✅ 辅助函数完成，尚未集成完整解析服务 | `_resolve_time_range_v3`（`application/metadata_resolution_v3.py`）；23 项单元测试（`test_metadata_resolution_v3_time_range.py`） |
-  | 7. join | ⚠️ 部分实现：指定 grant 校验与授权连接闭包选择完成；完整 ResolvedJoinV3/evidenceIds、执行方向语义及报告集成未完成 | `_resolve_join_grant_v3` + `_select_join_closure_v3`（`application/metadata_resolution_v3.py`）；30 项 grant 测试（`test_metadata_resolution_v3_join_grant.py`）+ 18 项闭包测试（`test_metadata_resolution_v3_join_closure.py`） |
+  | 7. join | ⚠️ 部分实现：指定 grant 校验与授权连接闭包选择完成；完整 ResolvedJoinV3 构造（evidence_ids、方向计划）、执行方向语义及报告集成未完成 | `_resolve_join_grant_v3` + `_select_join_closure_v3`（`application/metadata_resolution_v3.py`）；30 项 grant 测试（`test_metadata_resolution_v3_join_grant.py`）+ 27 项闭包测试（`test_metadata_resolution_v3_join_closure.py`） |
   | 8. 使用位置 | ⚠️ 部分实现 | evidence 复制（`ResolvedFieldV3.evidenceIds` 等，由 `_resolve_fields_and_entity_keys_v3` 覆盖）、usage 摘要算法（`compute_usage_traceability_sha256_v3`，`usage_traceability_v3.py`，20 项测试）已完成；摘要接入完整报告组装未实现 |
 
   上表之外的支撑与集成工作：
@@ -1365,6 +1374,52 @@ context/snapshot/grants；离线 fake provider 实现和测试不以真实 provi
 - 失败语义：unavailable/failed 不抛出、不伪造成功；生成失败或背书/闭包校验失败时 save
   零调用。
 - 测试范围：矩阵 5、6、8、12；V2 存储回归。
+
+> **M5 第一切片实施范围（2026-09-13，已完成）**：
+> 本轮完成独立的 V3 存储契约、端口、MongoDB 适配器及配置，通过 fake MongoDB
+> 验证候选可以不可变保存、重复保存幂等、失败正确降级。
+>
+> **新增文件**：
+> - `src/release_sql_bot/application/ports/candidate_store_v3.py`：
+>   `CandidateTemplateStoreV3` 端口 + `CandidateStoreV3Status` + `CandidateStoreV3Outcome`
+> - `src/release_sql_bot/domain/stored_candidate_v3.py`：
+>   `StoredCandidateV3` 包装契约（`schemaVersion="1.0.0"`，独立 `contentSha256` 校验）
+> - `src/release_sql_bot/infrastructure/database/mongodb_candidates_v3.py`：
+>   `MongoCandidateStoreV3` 适配器（注入 `client_factory`，insert-only）
+> - `src/release_sql_bot/config/settings.py`：
+>   新增 `candidate_store_v3_enabled` / `candidate_store_v3_database` / `candidate_store_v3_collection`
+> - `tests/unit/test_candidate_store_v3.py`：21 项离线测试（fake client）
+>
+> **不变量**：关闭不创建 client；initialize 成功前不 insert；ping + 唯一索引；失败降级 unavailable；
+> 只允许 `insert_one`；重复 `contentSha256` 返回 `duplicate`；写异常返回 `failed`；
+> 未就绪/关闭返回 `unavailable`；不改变候选状态；save 前独立重验 V3 结构与哈希；
+> 日志不含 SQL/对象名/参数值/URI/凭据。
+>
+> **本轮不装配真实服务，不调用数据库，不接入 M3 生成服务。**
+> M5 下一切片仍须完成：同一次应用调用中的 handoff 仓储背书、批准核验和生成后存储装配；
+> 生成或背书失败时 `store.save` 零调用；按 `candidateGenerated → candidateStored → staticPassed`
+> 顺序测试；记录存储 outcome，保留静态 blocked 候选。
+
+> **M5 第二切片实施范围（2026-09-13，已完成）**：
+> 本轮完成 V3 生成后存储内部应用服务的离线装配。
+>
+> **新增文件**：
+> - `src/release_sql_bot/application/candidate_persistence_v3.py`：
+>   `GenerateAndStoreResultV3` 结果类型 + `generate_and_store_sql_candidate_v3` 服务函数
+> - `tests/unit/test_candidate_persistence_v3.py`：16 项离线测试
+>
+> **服务行为**：
+> - 调用现有 `generate_sql_candidate_v3` 完成全部门禁和生成
+> - 生成成功后对同一候选调用一次 `store.save`
+> - 返回 `GenerateAndStoreResultV3(candidate, store_outcome)`
+> - 生成失败时 store 零调用，存储失败时仍返回候选
+>
+> **测试覆盖**：正常生成保存（provider→save 各 1 次）、四种存储 outcome 参数化、
+> 前置门禁失败（store 零调用）、模型/生成失败（store 零调用，重试上限）、
+> 独立重新背书、输入不变性。
+>
+> 静态 blocked 的保留由 `test_run_order_then_static_blocked` 证明；
+> Mongo fake 组合由 `test_generate_and_store_mongo_fake_inserts_once` 证明。
 
 ### M6：Phase 4R 编排与证据包（V3 通道）
 

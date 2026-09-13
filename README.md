@@ -61,14 +61,20 @@ ReleaseSQLBot 是双 Agent 方案中的 Agent 2：消费 RuleReader（Agent 1）
 
 V2 的 `readyForMetadataResolution` 只表示可以开始受治理的元数据解析，不表示可进入生成阶段。
 V3 的 `readyForMetadataResolution` 目前只表示批次通过了只读 intake 门禁。V3 实施进度：
-intake（已完成，`b3e3d35`）和 M1 授权上下文/快照/handoff 闭包契约（已完成）已交付；
-M2 元数据解析部分完成（内容闭包校验、usage 摘要、请求/报告契约、输入门禁、column grant 解析、
+intake（已完成，`b3e3d35`）和 M1 授权上下文/快照/handoff 闭包（已完成）已交付；
+M2 元数据解析已完成（内容闭包校验、usage 摘要、请求/报告契约、输入门禁、column grant 解析、
 字段/实体键授权闭包、filters 物理字段解析、aggregation 授权引用解析、
 timeRange 时间字段授权解析、指定 join grant 物理授权解析、
-多关系授权连接闭包选择等辅助函数已完成；
-完整 ResolvedJoinV3/evidenceIds、执行方向语义、公开 `resolve_metadata_v3` 编排及报告组装仍未实现）；
-M3–M6（候选生成、静态门禁、候选存储、编排与证据包）
-尚未开工，完整 V3 下游链未打通。禁止把 V3 转换、裁剪或降级为 V2 契约
+多关系授权连接闭包选择、entity-grain 映射、JOIN 证据闭包、JOIN 计划解析、
+公开 `resolve_metadata_v3` 编排及报告组装共 13 个子任务全部完成）；
+M3 首版受限 source 单关系生成切片已交付（`generate_sql_candidate_v3`，固定离线 provider，
+不进入 M4 AST、M5 存储、M6 编排）；
+M4 首版受限语法静态门禁已交付（`validate_sql_candidate_v3`，仅接受直接单表查询，
+不支持 JOIN/CTE/子查询/UNION/聚合/函数/星号/DML/临时对象/跨数据库引用）；
+M5 第一切片已完成（独立 V3 存储契约、端口、MongoDB 适配器及配置，fake 驱动离线验证通过，
+insert-only、唯一 hash、幂等、失败降级不变量全部覆盖）；
+M5 下一切片（生成后存储装配）与 M6（编排与证据包）尚未开工。完整 V3 下游链未打通。
+禁止把 V3 转换、裁剪或降级为 V2 契约
 （见 [REQ-20260906-04](docs/requirements/REQ-20260906-04-v3-downstream-pipeline-alignment.md)
 与 [BUG-20260906-01](docs/bugs/BUG-20260906-01-v3-phase4r-downstream-contract-gap.md)）。
 旧 `ready` 仅属于 V1 legacy API；候选生成成功不表示已通过 AST。即使 Phase 4 静态报告为 `passed`，
@@ -268,7 +274,8 @@ uv run pytest
 - Phase 5A 提供受限 describe-only 验证端口：加密连接、只读意图、非生产 profile、权限与快照漂移
   证明、`sp_describe_first_result_set` 结果形状检查；它仍不执行候选取数、不生成执行计划、不保存
   或批准候选；
-- 应用始终没有候选 SQL 执行/取数端口，也不保存、批准或发布候选；
+- 应用始终没有候选 SQL 执行/取数端口；V2 有默认关闭的可选候选存储（`RSB_CANDIDATE_STORE_ENABLED=false`），
+  V3 候选存储未实现；没有候选批准或发布能力；
 - SQL 只有在后续 AST、安全、受限试跑和人工审核全部通过后才可能发布。
 
 ## 文档导航
@@ -315,12 +322,12 @@ uv run pytest
 - [双 Agent 职责决策](docs/decisions/BIZ-20260819-01-agent2-role-alignment.md)
 - [事实绑定技术方案](docs/architecture/DEV-20260819-01-fact-binding-contract.md)
 - [阶段路线图](docs/ROADMAP.md)
-- [当前进度](docs/progress/PROG-20260911.md)
+- [当前进度](docs/progress/PROG-20260912.md)
 
 旧的“整规则异常集合 SQL”文档作为历史记录保留，不再指导 SQL 生成；其中规则 JSON Schema 1.0
 只被复用于确定性的规则读取校验、canonicalization、哈希和 diff。
 
 `FactBindingRequest 1.0.0` 模型和生成测试同样只作 legacy 记录。
 当前 RuleReader 运行时交接同时支持 V2（`FactBindingRequest 2.0.0`，完整 Phase 2G/3/4 链路已打通）
-与 V3（`FactBindingRequest 3.0.0`，intake 与 M1 已完成，M2 部分完成，完整 V3 下游链未打通）；
+与 V3（`FactBindingRequest 3.0.0`，intake 与 M1 已完成，M2 已完成，M3/M4 首版受限切片已交付，完整 V3 下游链未打通）；
 V3 只读 intake 已完成，但禁止把 V3 转换、裁剪或降级为 V2 契约。

@@ -213,10 +213,19 @@
   M2 第十二子任务已完成（2026-09-11）：`_select_join_closure_v3`
   （多关系授权连接闭包选择；原交付 18 项 / 1007 passed，
   修复门禁绕过后当前 27 项 / 1016 passed）。
-  M2 仍为 `in_progress`，剩余：完整 ResolvedJoinV3/evidenceIds、执行方向语义、公开 `resolve_metadata_v3` 编排及报告组装；
-  另 `entityType`/`grain` 到授权 relation 的映射待澄清（见 DEV §14 开放问题第 7 项）。
-  filters/aggregation/timeRange/join-grant/join-closure 辅助函数已完成，但完整解析服务与报告组装仍未实现，M2 不标记 `completed`。
-  当前代码基线详见最新 PROG。
+  M2 已全部完成（共 13 个子任务，含公开编排 `resolve_metadata_v3`），
+  已标记 `completed`（2026-09-12）。
+  M3 首版切片已完成（2026-09-12）：`generate_sql_candidate_v3` 生成服务
+  （domain/sql_candidates_v3.py、application/candidates_v3.py、application/prompts_v3.py、
+  application/ports/approval_records_v3.py）、`scripts/preview_synthetic_v3.py`、
+  19 项单元测试；全量 1133 passed。首版仅支持 source 单关系无 JOIN 无聚合无时间范围无筛选的事实。
+  真实 MongoDB/在线模型接入仍缺（真实仓储适配器、真实批准端口、在线 provider 配置）。
+  当前代码基线与验证结果详见最新 PROG。
+  M2 剩余设计缺口分析与可实施方案见
+  [DEV-20260911-01](architecture/DEV-20260911-01-v3-m2-remaining-design-gaps.md)（proposed，二次修订）。
+  修订要点：JOIN 证据关联进入版本化 context（非运行时构造）；
+  删除 accumulated_side；LEFT JOIN 保留端 = grant left；
+  resolutionHashes 成功/失败均从明确对象计算。
 
 ## Phase 5：受限 SQL Server 验证
 

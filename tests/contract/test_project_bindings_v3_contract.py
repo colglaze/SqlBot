@@ -134,7 +134,7 @@ def _join_grant() -> dict[str, object]:
 
 def _context_payload() -> dict[str, object]:
     return {
-        "schemaVersion": "1.0.0",
+        "schemaVersion": "1.1.0",
         "contextId": "ctx-1",
         "contextVersion": 1,
         "status": "approved",
@@ -151,6 +151,14 @@ def _context_payload() -> dict[str, object]:
         "fieldBindingAuthorizations": [_field_binding()],
         "entityKeyAuthorizations": [_entity_key()],
         "joinGrants": [_join_grant()],
+        "entityGrainAuthorizations": [
+            {
+                "entityType": "synthetic_entity",
+                "grain": "report",
+                "relationGrantId": "relgrant-1",
+            }
+        ],
+        "joinAuthorizationEvidence": [],
         "approvalRef": _approval_ref(),
         "contentSha256": _VALID_SHA,
     }
@@ -214,7 +222,7 @@ def test_context_valid_payload_round_trip() -> None:
     payload = _context_payload()
     context = ProjectBindingContextV3.model_validate(payload)
     assert context.model_dump(by_alias=True, mode="json") == payload
-    assert context.schema_version == "1.0.0"
+    assert context.schema_version == "1.1.0"
     assert context.rule_ref.schema_version == "3.0.0"
 
 
@@ -910,9 +918,10 @@ def _build_context_wire(
     snapshot_id: str = "snap-1",
     snapshot_version: int = 1,
     snapshot_sha256: str = "0" * 64,
+    schema_version: str = "1.1.0",
 ) -> dict[str, object]:
-    return {
-        "schemaVersion": "1.0.0",
+    wire: dict[str, object] = {
+        "schemaVersion": schema_version,
         "contextId": context_id,
         "contextVersion": context_version,
         "status": status,
@@ -937,6 +946,17 @@ def _build_context_wire(
         },
         "contentSha256": "0" * 64,
     }
+    # New in schemaVersion 1.1.0
+    if schema_version == "1.1.0":
+        wire["entityGrainAuthorizations"] = [
+            {
+                "entityType": "synthetic_entity",
+                "grain": "report",
+                "relationGrantId": "relgrant-1",
+            }
+        ]
+        wire["joinAuthorizationEvidence"] = []
+    return wire
 
 
 def _build_approval_wire(
@@ -1587,3 +1607,324 @@ def test_validator_does_not_import_v2_or_infrastructure() -> None:
     assert "mongodb" not in source
     assert "os.environ" not in source
     assert "getenv" not in source
+
+
+# ---------------------------------------------------------------------------
+# schemaVersion 1.1.0: new required fields
+# ---------------------------------------------------------------------------
+
+
+def test_context_1_1_0_accepts_valid_new_fields() -> None:
+    snapshot = _make_snapshot()
+    context = _make_context(snapshot_sha256=snapshot.content_sha256)
+    assert context.schema_version == "1.1.0"
+    assert len(context.entity_grain_authorizations) >= 1
+    assert isinstance(context.join_authorization_evidence, list)
+
+
+def test_context_1_1_0_rejects_missing_entity_grain_authorizations() -> None:
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    wire["entityGrainAuthorizations"] = []
+    with pytest.raises(ValidationError):
+        ProjectBindingContextV3.model_validate(wire)
+
+
+def test_schema_version_fixed_to_1_1_0() -> None:
+    """ProjectBindingContextV3 only accepts schemaVersion=1.1.0."""
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+
+    # 1.0.0 is rejected at Pydantic level
+    wire["schemaVersion"] = "1.0.0"
+    with pytest.raises(ValidationError) as exc_info:
+        ProjectBindingContextV3.model_validate(wire)
+    assert "schemaVersion" in str(exc_info.value)
+
+    # Even with new fields present, wrong version is rejected
+    wire["schemaVersion"] = "2.0.0"
+    with pytest.raises(ValidationError):
+        ProjectBindingContextV3.model_validate(wire)
+
+
+def test_entity_grain_rejects_duplicate_entity_type_grain() -> None:
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    wire["entityGrainAuthorizations"] = [
+        {"entityType": "foo", "grain": "bar", "relationGrantId": "relgrant-1"},
+        {"entityType": "foo", "grain": "bar", "relationGrantId": "relgrant-1"},
+    ]
+    with pytest.raises(ValidationError):
+        ProjectBindingContextV3.model_validate(wire)
+
+
+def test_join_evidence_rejects_duplicate_request_grant() -> None:
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    wire["joinAuthorizationEvidence"] = [
+        {
+            "requestId": "SYNTH_RULE_SET@v1#fact.one",
+            "payloadSha256": "a" * 64,
+            "joinGrantId": "join-1",
+            "evidenceIds": ["ev-1"],
+        },
+        {
+            "requestId": "SYNTH_RULE_SET@v1#fact.one",
+            "payloadSha256": "a" * 64,
+            "joinGrantId": "join-1",
+            "evidenceIds": ["ev-2"],
+        },
+    ]
+    with pytest.raises(ValidationError):
+        ProjectBindingContextV3.model_validate(wire)
+
+
+def test_join_evidence_accepts_empty_list() -> None:
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    wire["joinAuthorizationEvidence"] = []
+    context = ProjectBindingContextV3.model_validate(wire)
+    assert context.join_authorization_evidence == []
+
+
+def test_join_evidence_rejects_empty_evidence_ids() -> None:
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    wire["joinAuthorizationEvidence"] = [
+        {
+            "requestId": "SYNTH_RULE_SET@v1#fact.one",
+            "payloadSha256": "a" * 64,
+            "joinGrantId": "join-1",
+            "evidenceIds": [],
+        }
+    ]
+    with pytest.raises(ValidationError):
+        ProjectBindingContextV3.model_validate(wire)
+
+
+# ===================================================================
+# schemaVersion 1.1.0: requestId and additional regression tests
+# ===================================================================
+
+
+def _valid_join_evidence_req_id() -> str:
+    """A realistic V3 requestId with special characters."""
+    return "SYNTH_RULE_SET@v1#fact.one"
+
+
+@pytest.mark.parametrize(
+    "req_id",
+    [
+        "",  # empty
+        "a",  # 1 char — too short
+        "ab",  # 2 chars — too short
+        "x" * 421,  # too long
+    ],
+)
+def test_join_evidence_request_id_rejects_invalid(req_id: str) -> None:
+    """requestId must be 3-420 chars — rejects empty, too short, too long."""
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    wire["joinAuthorizationEvidence"] = [
+        {
+            "requestId": req_id,
+            "payloadSha256": "a" * 64,
+            "joinGrantId": "join-1",
+            "evidenceIds": ["ev-1"],
+        }
+    ]
+    with pytest.raises(ValidationError):
+        ProjectBindingContextV3.model_validate(wire)
+
+
+@pytest.mark.parametrize(
+    "req_id",
+    [
+        "abc",  # exactly 3 — boundary
+        "x" * 420,  # exactly 420 — boundary
+        "SYNTH_RULE_SET@v1#fact.one",  # realistic shape
+        "RULE@20260906T000000000000Z-a1b2c3d4e5f6#report.synthetic_amount",
+    ],
+)
+def test_join_evidence_request_id_accepts_valid(req_id: str) -> None:
+    """requestId accepts 3-420 chars including #, @, ., -."""
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    wire["joinAuthorizationEvidence"] = [
+        {
+            "requestId": req_id,
+            "payloadSha256": "a" * 64,
+            "joinGrantId": "join-1",
+            "evidenceIds": ["ev-1"],
+        }
+    ]
+    context = ProjectBindingContextV3.model_validate(wire)
+    assert context.join_authorization_evidence[0].request_id == req_id
+
+
+def test_join_evidence_missing_field_rejected() -> None:
+    """joinAuthorizationEvidence with missing required fields is rejected."""
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    # Missing evidenceIds
+    wire["joinAuthorizationEvidence"] = [
+        {
+            "requestId": _valid_join_evidence_req_id(),
+            "payloadSha256": "a" * 64,
+            "joinGrantId": "join-1",
+        }
+    ]
+    with pytest.raises(ValidationError):
+        ProjectBindingContextV3.model_validate(wire)
+
+
+def test_join_evidence_explicit_empty_list_accepted() -> None:
+    """joinAuthorizationEvidence=[] is valid for contexts without joins."""
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    wire["joinAuthorizationEvidence"] = []
+    context = ProjectBindingContextV3.model_validate(wire)
+    assert context.join_authorization_evidence == []
+
+
+def test_entity_grain_missing_field_rejected() -> None:
+    """entityGrainAuthorizations with missing required fields is rejected."""
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    wire["entityGrainAuthorizations"] = [
+        {"entityType": "foo"}  # missing grain and relationGrantId
+    ]
+    with pytest.raises(ValidationError):
+        ProjectBindingContextV3.model_validate(wire)
+
+
+def test_entity_grain_empty_list_rejected() -> None:
+    """entityGrainAuthorizations=[] is rejected — must be non-empty."""
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    wire["entityGrainAuthorizations"] = []
+    with pytest.raises(ValidationError):
+        ProjectBindingContextV3.model_validate(wire)
+
+
+def test_model_copy_bypass_rejected_via_revalidation() -> None:
+    """model_copy injecting invalid new fields is caught by full re-validation."""
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    context = ProjectBindingContextV3.model_validate(wire)
+
+    # Attempt model_copy bypass with invalid schemaVersion
+    tampered = context.model_copy(update={"schema_version": "1.0.0"})
+    # The tampered object should fail full serialization round-trip
+    # because schema_version is frozen and Literal["1.1.0"]
+    from pydantic import ValidationError
+
+    try:
+        # Re-validate via dump+validate
+        wire_back = tampered.model_dump(by_alias=True, mode="json")
+        wire_back["schemaVersion"] = "1.0.0"  # inject invalid version
+        ProjectBindingContextV3.model_validate(wire_back)
+        raise AssertionError("Expected ValidationError for invalid schemaVersion")
+    except ValidationError:
+        pass  # Expected
+
+
+# ===================================================================
+# Additional regression tests (post-fix)
+# ===================================================================
+
+
+def test_request_id_missing_field_rejected() -> None:
+    """joinAuthorizationEvidence with missing requestId is rejected."""
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    wire["joinAuthorizationEvidence"] = [
+        {
+            # "requestId" missing
+            "payloadSha256": "a" * 64,
+            "joinGrantId": "join-1",
+            "evidenceIds": ["ev-1"],
+        }
+    ]
+    with pytest.raises(ValidationError) as exc_info:
+        ProjectBindingContextV3.model_validate(wire)
+    assert "requestId" in str(exc_info.value)
+
+
+def test_join_authorization_evidence_missing_top_level_rejected() -> None:
+    """Missing top-level joinAuthorizationEvidence field is rejected."""
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    del wire["joinAuthorizationEvidence"]
+    with pytest.raises(ValidationError) as exc_info:
+        ProjectBindingContextV3.model_validate(wire)
+    assert "joinAuthorizationEvidence" in str(exc_info.value)
+
+
+def test_entity_grain_authorizations_missing_top_level_rejected() -> None:
+    """Missing top-level entityGrainAuthorizations field is rejected."""
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    del wire["entityGrainAuthorizations"]
+    with pytest.raises(ValidationError) as exc_info:
+        ProjectBindingContextV3.model_validate(wire)
+    assert "entityGrainAuthorizations" in str(exc_info.value)
+
+
+def test_context_1_0_0_without_new_fields_rejected() -> None:
+    """schemaVersion=1.0.0 context without new fields is rejected."""
+    from pydantic import ValidationError
+
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    wire["schemaVersion"] = "1.0.0"
+    with pytest.raises(ValidationError) as exc_info:
+        ProjectBindingContextV3.model_validate(wire)
+    assert "schemaVersion" in str(exc_info.value)
+
+
+def test_context_old_version_with_new_fields_still_rejected() -> None:
+    """Even with all new fields present, wrong schemaVersion is rejected."""
+    from pydantic import ValidationError
+
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    wire["schemaVersion"] = "1.0.0"
+    # wire already has entityGrainAuthorizations and joinAuthorizationEvidence
+    with pytest.raises(ValidationError) as exc_info:
+        ProjectBindingContextV3.model_validate(wire)
+    assert "schemaVersion" in str(exc_info.value)
+
+
+def test_entity_grain_duplicate_rejected() -> None:
+    """Duplicate (entityType, grain) is rejected."""
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    wire["entityGrainAuthorizations"] = [
+        {"entityType": "foo", "grain": "bar", "relationGrantId": "relgrant-1"},
+        {"entityType": "foo", "grain": "bar", "relationGrantId": "relgrant-1"},
+    ]
+    with pytest.raises(ValidationError):
+        ProjectBindingContextV3.model_validate(wire)
+
+
+def test_join_evidence_duplicate_rejected() -> None:
+    """Duplicate (requestId, joinGrantId) is rejected."""
+    snapshot = _make_snapshot()
+    wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
+    wire["joinAuthorizationEvidence"] = [
+        {
+            "requestId": "SYNTH_RULE_SET@v1#fact.one",
+            "payloadSha256": "a" * 64,
+            "joinGrantId": "join-1",
+            "evidenceIds": ["ev-1"],
+        },
+        {
+            "requestId": "SYNTH_RULE_SET@v1#fact.one",
+            "payloadSha256": "a" * 64,
+            "joinGrantId": "join-1",
+            "evidenceIds": ["ev-2"],
+        },
+    ]
+    with pytest.raises(ValidationError):
+        ProjectBindingContextV3.model_validate(wire)

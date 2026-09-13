@@ -136,9 +136,9 @@ def _build_context_wire(
     request_id: str,
 ) -> dict[str, object]:
     return {
-        "schemaVersion": "1.0.0",
+        "schemaVersion": "1.1.0",
         "contextId": "ctx-1",
-        "contextVersion": 1,
+        "contextVersion": 2,
         "status": "approved",
         "projectRef": {"projectId": "proj-1", "projectVersion": 1},
         "ruleRef": dict(rule_ref),
@@ -195,6 +195,14 @@ def _build_context_wire(
             }
         ],
         "joinGrants": [],
+        "entityGrainAuthorizations": [
+            {
+                "entityType": "synthetic_entity",
+                "grain": "synthetic_grain",
+                "relationGrantId": "relgrant-1",
+            }
+        ],
+        "joinAuthorizationEvidence": [],
         "approvalRef": dict(_APPROVAL_REF),
         "contentSha256": _VALID_SHA,
     }
@@ -210,7 +218,7 @@ def _build_approval_wire(
         "approvalId": "approval-1",
         "contextRef": {
             "contextId": "ctx-1",
-            "contextVersion": 1,
+            "contextVersion": 2,
             "sha256": context_sha256,
         },
         "snapshotRef": {

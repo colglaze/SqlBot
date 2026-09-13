@@ -63,9 +63,9 @@ def _rebuild_context_with(
 ) -> ProjectBindingContextV3:
     """Rebuild a valid context with optional field overrides, re-closing hashes."""
     wire = {
-        "schemaVersion": "1.0.0",
+        "schemaVersion": "1.1.0",
         "contextId": "ctx-1",
-        "contextVersion": 1,
+        "contextVersion": 2,
         "status": "approved",
         "projectRef": {"projectId": "proj-1", "projectVersion": 1},
         "ruleRef": dict(rule_ref),
@@ -122,6 +122,14 @@ def _rebuild_context_with(
             }
         ],
         "joinGrants": [],
+        "entityGrainAuthorizations": [
+            {
+                "entityType": "synthetic_entity",
+                "grain": "synthetic_grain",
+                "relationGrantId": "relgrant-1",
+            }
+        ],
+        "joinAuthorizationEvidence": [],
         "approvalRef": dict(_APPROVAL_REF),
         "contentSha256": _VALID_SHA,
     }
@@ -144,7 +152,7 @@ def _rebuild_approval_with(
         "approvalId": "approval-1",
         "contextRef": {
             "contextId": "ctx-1",
-            "contextVersion": 1,
+            "contextVersion": 2,
             "sha256": context_sha256,
         },
         "snapshotRef": {
@@ -790,9 +798,9 @@ def test_extra_request_id_passes() -> None:
     snapshot_wire = snapshot.model_dump(by_alias=True, mode="json")
 
     wire = {
-        "schemaVersion": "1.0.0",
+        "schemaVersion": "1.1.0",
         "contextId": "ctx-1",
-        "contextVersion": 1,
+        "contextVersion": 2,
         "status": "approved",
         "projectRef": {"projectId": "proj-1", "projectVersion": 1},
         "ruleRef": deepcopy(
@@ -854,6 +862,14 @@ def test_extra_request_id_passes() -> None:
             }
         ],
         "joinGrants": [],
+        "entityGrainAuthorizations": [
+            {
+                "entityType": "synthetic_entity",
+                "grain": "synthetic_grain",
+                "relationGrantId": "relgrant-1",
+            }
+        ],
+        "joinAuthorizationEvidence": [],
         "approvalRef": dict(_APPROVAL_REF),
         "contentSha256": _VALID_SHA,
     }

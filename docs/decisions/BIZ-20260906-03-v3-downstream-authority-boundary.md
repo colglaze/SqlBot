@@ -158,12 +158,27 @@
 > 应用服务路径（M3 生成前完成）。
 >
 > **当前状态**：M1 已完成（`completed`，提交 `189daca`、`29716b0`）；
-> M2 为 `in_progress`（提交 `4f0f45c`：输入门禁 `_validate_resolution_input_v3`、
-> column grant 解析 `_resolve_column_grant_v3`、字段/实体键授权闭包
-> `_resolve_fields_and_entity_keys_v3`、filters 物理字段解析
-> `_resolve_filters_v3`、aggregation 授权引用解析 `_resolve_aggregation_v3`、
+> M2 为 `in_progress`（共 12 个子任务已完成；当前 HEAD `77c0651`，全量 1016 passed）：
+> 输入门禁 `_validate_resolution_input_v3`、column grant 解析 `_resolve_column_grant_v3`、
+> 字段/实体键授权闭包 `_resolve_fields_and_entity_keys_v3`、
+> filters 物理字段解析 `_resolve_filters_v3`、
+> aggregation 授权引用解析 `_resolve_aggregation_v3`、
 > timeRange 时间字段授权解析 `_resolve_time_range_v3`、
-> 指定 join grant 物理授权解析 `_resolve_join_grant_v3` 已完成；
-> 剩余 多关系连接选择、完整 join 输出、公开 `resolve_metadata_v3` 编排及报告组装；
-> `entityType`/`grain` 映射待澄清，见 DEV §14 开放问题第 7 项）。
+> 指定 join grant 物理授权解析 `_resolve_join_grant_v3`、
+> 多关系授权连接闭包选择 `_select_join_closure_v3` 已完成；
+> 剩余 完整 ResolvedJoinV3 构造（evidence_ids、方向计划）、entityType/grain 授权映射、
+> 公开 `resolve_metadata_v3` 编排及报告组装；
+> `entityType`/`grain` 映射待澄清，见 DEV §14 开放问题第 7 项。
 > 辅助函数完成不等于完整解析服务完成，M2 不标记 `completed`。
+> 剩余设计缺口分析见
+> [DEV-20260911-01](../architecture/DEV-20260911-01-v3-m2-remaining-design-gaps.md)（proposed）。
+>
+> **proposed 变更关联（2026-09-11，二次修订）**：
+> [DEV-20260911-01](../architecture/DEV-20260911-01-v3-m2-remaining-design-gaps.md) 提出以下
+> proposed 变更，**尚未批准**，不影响本 BIZ 既 approved 内容：
+> - 新增 `EntityGrainAuthorizationV3`（context 级必填）— 扩展第 5 条上下文契约
+> - `JoinAuthorizationEvidenceV3` 进入版本化 context — **影响 context 持久契约**
+> - LEFT JOIN 保留侧 = grant left 端（不由 BFS/accumulated_side 决定）
+> - 方向不兼容时阻断（`JOIN_PLAN_DIRECTION_CONFLICT`）
+> - 统一编排边界：wire 结构失败 → 中性异常；完整结构成功后 → blocked 报告
+> - 报告 `resolutionHashes` 在成功/失败时均从明确对象计算
