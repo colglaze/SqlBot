@@ -42,6 +42,7 @@ Review fixes applied (r1 + r2):
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -86,13 +87,24 @@ _PROVIDER_IDENTITY_UNTRUSTED_CODE = "M6_PROVIDER_IDENTITY_UNTRUSTED"
 _MODEL_IDENTITY_UNTRUSTED_CODE = "M6_MODEL_IDENTITY_UNTRUSTED"
 _PROMPT_VERSION_UNTRUSTED_CODE = "M6_PROMPT_VERSION_UNTRUSTED"
 
-# Trusted identifiers for the offline slice (exact allowlists).
-# Only these values copied from untrusted sources are accepted into the
-# evidence pack. Anything else becomes null with a neutral code.
-_TRUSTED_PROVIDER_IDENTIFIERS: frozenset[str] = frozenset({"fixed-offline-v3"})
-_TRUSTED_MODEL_IDENTIFIERS: frozenset[str] = frozenset({"fixed-model-v3"})
-_TRUSTED_PROMPT_VERSIONS: frozenset[str] = frozenset(
-    {"sqlserver-fact-candidate-v3.0", "sqlserver-fact-candidate-v3.1"}
+
+@dataclass(frozen=True, slots=True)
+class TrustedIdentifiersV3:
+    """Exact-match allowlists for evidence-pack identity fields.
+
+    Membership is ordinary ``in`` on a ``frozenset`` (full-string equality).
+    An empty frozenset trusts nothing; it never means allow-all.
+    """
+
+    providers: frozenset[str]
+    models: frozenset[str]
+    prompt_versions: frozenset[str]
+
+
+_DEFAULT_TRUSTED_IDENTIFIERS = TrustedIdentifiersV3(
+    providers=frozenset({"fixed-offline-v3"}),
+    models=frozenset({"fixed-model-v3"}),
+    prompt_versions=frozenset({"sqlserver-fact-candidate-v3.0", "sqlserver-fact-candidate-v3.1"}),
 )
 
 _REPOSITORY_UNAVAILABLE_CODES: frozenset[str] = frozenset(
@@ -115,8 +127,13 @@ class CountingProviderProxy:
     metadata even when the provider later fails.
     """
 
-    def __init__(self, inner: CandidateModelProvider) -> None:
+    def __init__(
+        self,
+        inner: CandidateModelProvider,
+        trusted_identifiers: TrustedIdentifiersV3 | None = None,
+    ) -> None:
         self._inner = inner
+        self._trusted = trusted_identifiers or _DEFAULT_TRUSTED_IDENTIFIERS
         self.call_count: int = 0
         self.last_safe_model: str | None = None
         self.last_model_issue: str | None = None
@@ -126,11 +143,13 @@ class CountingProviderProxy:
     async def generate(self, request: CandidateModelRequest) -> CandidateModelResponse:
         self.call_count += 1
         # Record safe metadata from the actual request *before* forwarding.
-        self.last_safe_model, self.last_model_issue = _validate_model_identity(request.model)
+        self.last_safe_model, self.last_model_issue = _validate_model_identity(
+            request.model, self._trusted
+        )
         (
             self.last_safe_prompt_version,
             self.last_prompt_version_issue,
-        ) = _validate_prompt_version(request.prompt_version)
+        ) = _validate_prompt_version(request.prompt_version, self._trusted)
         return await self._inner.generate(request)
 
 
@@ -177,25 +196,32 @@ def _store_outcome_issue_codes(status: CandidateStoreV3Status) -> tuple[str, ...
     return ()
 
 
-def _validate_provider_identity(provider: str | None) -> tuple[str | None, str | None]:
-    """Validate a provider identifier against the offline allowlist."""
-    if provider is not None and provider in _TRUSTED_PROVIDER_IDENTIFIERS:
+def _validate_provider_identity(
+    provider: str | None,
+    trusted: TrustedIdentifiersV3,
+) -> tuple[str | None, str | None]:
+    """Validate a provider identifier against the exact allowlist."""
+    if provider is not None and provider in trusted.providers:
         return provider, None
     return None, _PROVIDER_IDENTITY_UNTRUSTED_CODE
 
 
-def _validate_model_identity(model: str | None) -> tuple[str | None, str | None]:
-    """Validate a model identifier against the offline allowlist."""
-    if model is not None and model in _TRUSTED_MODEL_IDENTIFIERS:
+def _validate_model_identity(
+    model: str | None,
+    trusted: TrustedIdentifiersV3,
+) -> tuple[str | None, str | None]:
+    """Validate a model identifier against the exact allowlist."""
+    if model is not None and model in trusted.models:
         return model, None
     return None, _MODEL_IDENTITY_UNTRUSTED_CODE
 
 
 def _validate_prompt_version(
     prompt_version: str | None,
+    trusted: TrustedIdentifiersV3,
 ) -> tuple[str | None, str | None]:
-    """Validate a prompt version against the offline allowlist."""
-    if prompt_version is not None and prompt_version in _TRUSTED_PROMPT_VERSIONS:
+    """Validate a prompt version against the exact allowlist."""
+    if prompt_version is not None and prompt_version in trusted.prompt_versions:
         return prompt_version, None
     return None, _PROMPT_VERSION_UNTRUSTED_CODE
 
@@ -246,8 +272,13 @@ async def run_offline_v3_evidence_loop(
     model: str,
     max_retries: int,
     sleeper: RetrySleeper = asyncio.sleep,
+    trusted_identifiers: TrustedIdentifiersV3 | None = None,
 ) -> EvidencePackV3:
-    """Run the full V3 evidence loop offline and return an evidence pack.
+    """Run the V3 evidence loop and return an evidence pack.
+
+    This function is transport-agnostic. Whether a run is offline depends
+    on the injected ports (handoff repository, approval port, store, and
+    model provider), not on CLI versus HTTP.
 
     Args:
         provider: Bounded model provider port.
@@ -258,6 +289,10 @@ async def run_offline_v3_evidence_loop(
         model: Model identifier for the provider.
         max_retries: Maximum retry attempts (0-5).
         sleeper: Async sleep function for retry delays.
+        trusted_identifiers: Exact-match allowlists for provider/model/
+            promptVersion copied into the pack. ``None`` uses the same
+            defaults as the offline slice. An empty frozenset trusts
+            nothing.
 
     Returns:
         EvidencePackV3 capturing the outcome of every pipeline stage.
@@ -265,10 +300,11 @@ async def run_offline_v3_evidence_loop(
     """
     started_at = datetime.now(UTC)
     base = _pack_base_fields(payload)
+    trusted = trusted_identifiers or _DEFAULT_TRUSTED_IDENTIFIERS
 
     # Wrap the provider so we can measure the real call count and
     # record safe metadata from each request.
-    counting_provider = CountingProviderProxy(provider)
+    counting_provider = CountingProviderProxy(provider, trusted)
 
     # ------------------------------------------------------------------
     # Stage 1: generate + store (generate_and_store_sql_candidate_v3)
@@ -319,7 +355,9 @@ async def run_offline_v3_evidence_loop(
 
     # Provider identity from the model response is untrusted; validate
     # against the explicit offline allowlist.
-    trusted_provider, provider_issue_code = _validate_provider_identity(provenance.provider)
+    trusted_provider, provider_issue_code = _validate_provider_identity(
+        provenance.provider, trusted
+    )
     # Model/promptVersion come from the proxy-recorded safe request values.
     safe_model, safe_pv, metadata_issues = _safe_metadata(counting_provider, call_count)
 

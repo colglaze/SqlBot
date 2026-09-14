@@ -386,6 +386,33 @@ class ApprovalRecordV3(_V3Base):
         return _validate_timestamp(value, "approvedAt")
 
 
+class ApprovalRecordActivePointerV3(_V3Base):
+    """Trusted metadataReview lifecycle pointer consumed read-only by SqlBot."""
+
+    schema_version: Literal["1.0.0"]
+    approval_id: str = Field(pattern=_STABLE_ID_PATTERN, max_length=200)
+    approval_content_sha256: str = Field(pattern=_SHA256_PATTERN)
+    state: Literal["active", "revoked", "superseded"]
+    revision: int = Field(ge=1)
+    changed_at: str = Field(min_length=1, max_length=80)
+    actor_ref: str = Field(pattern=_STABLE_ID_PATTERN, max_length=200)
+    previous_pointer_sha256: str | None = Field(..., pattern=_SHA256_PATTERN)
+    content_sha256: str = Field(pattern=_SHA256_PATTERN)
+
+    @field_validator("changed_at")
+    @classmethod
+    def validate_changed_at(cls, value: str) -> str:
+        return _validate_timestamp(value, "changedAt")
+
+    @model_validator(mode="after")
+    def validate_revision_chain_reference(self) -> ApprovalRecordActivePointerV3:
+        if self.revision == 1 and self.previous_pointer_sha256 is not None:
+            raise ValueError("revision=1 requires previousPointerSha256=null")
+        if self.revision > 1 and self.previous_pointer_sha256 is None:
+            raise ValueError("revision>1 requires previousPointerSha256")
+        return self
+
+
 _APPROVAL_CLOSURE_CODES: frozenset[str] = frozenset(
     {
         "APPROVAL_ID_MISMATCH",

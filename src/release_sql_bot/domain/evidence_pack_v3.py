@@ -21,27 +21,32 @@ connection strings, URIs, API keys, provider raw fixes applied:
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, StrictBool, model_validator
 
 from release_sql_bot.domain.fact_bindings_v3 import V3ReportModel
 
 _SHA256_PATTERN = r"^[a-f0-9]{64}$"
+_RUN_ID_PATTERN = r"^[a-f0-9]{32}$"
+_RUN_ID_RE = re.compile(_RUN_ID_PATTERN)
 
 _STORE_OUTCOME_VALUES = Literal["stored", "duplicate", "unavailable", "failed"]
 
 
 class EvidencePackV3(V3ReportModel):
-    """Immutable V3 evidence pack assembled by the offline evidence loop.
+    """Immutable V3 evidence pack assembled by the evidence loop or CLI.
 
-    ``schemaVersion="1.0.0"`` (evidence pack contract version, distinct
-    from the candidate's ``schemaVersion="3.0.0"``).  camelCase /
+    ``schemaVersion="1.0.0"`` is the offline-loop contract (no online
+    authorization record). ``schemaVersion="1.1.0"`` is the CLI generate-v3
+    contract and requires ``runId`` plus ``authorizedOnlineProvider=true``.
+    Distinct from the candidate's ``schemaVersion="3.0.0"``. camelCase /
     extra=forbid / frozen (inherited from ``V3ReportModel``).
     """
 
-    schema_version: Literal["1.0.0"] = Field(default="1.0.0", alias="schemaVersion")
+    schema_version: Literal["1.0.0", "1.1.0"] = Field(default="1.0.0", alias="schemaVersion")
     stage: Literal[
         "blockedUpstream",
         "candidateGenerated",
@@ -76,7 +81,29 @@ class EvidencePackV3(V3ReportModel):
     issue_codes: tuple[str, ...] = Field(default=(), alias="issueCodes")
     started_at: datetime = Field(..., alias="startedAt")
     ended_at: datetime = Field(..., alias="endedAt")
+    # Optional on 1.0.0 (missing/null). Required and constrained on 1.1.0.
+    # Defaults are null — never auto-generate a runId or imply authorization.
+    # StrictBool rejects string/number coercion; 1.1.0 still requires True.
+    run_id: str | None = Field(default=None, alias="runId", max_length=32)
+    authorized_online_provider: StrictBool | None = Field(
+        default=None, alias="authorizedOnlineProvider"
+    )
     executable: Literal[False] = False
+
+    @model_validator(mode="after")
+    def _validate_audit_schema(self) -> EvidencePackV3:
+        """Enforce 1.0.0 / 1.1.0 authorization-audit compatibility."""
+        if self.schema_version == "1.1.0":
+            if self.run_id is None or _RUN_ID_RE.fullmatch(self.run_id) is None:
+                raise ValueError("schemaVersion 1.1.0 requires a valid runId")
+            if self.authorized_online_provider is not True:
+                raise ValueError("schemaVersion 1.1.0 requires authorizedOnlineProvider=true")
+            return self
+        if self.run_id is not None:
+            raise ValueError("schemaVersion 1.0.0 cannot carry runId")
+        if self.authorized_online_provider is not None:
+            raise ValueError("schemaVersion 1.0.0 cannot carry authorizedOnlineProvider")
+        return self
 
     @model_validator(mode="after")
     def _validate_stage_consistency(self) -> EvidencePackV3:

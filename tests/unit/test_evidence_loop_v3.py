@@ -207,6 +207,9 @@ def test_evidence_complete_on_valid_sql() -> None:
     assert pack.model == "fixed-model-v3"
     assert pack.prompt_version == "sqlserver-fact-candidate-v3.1"
     assert pack.issue_codes == ()
+    assert pack.schema_version == "1.0.0"
+    assert pack.run_id is None
+    assert pack.authorized_online_provider is None
 
 
 # ---------------------------------------------------------------------------
@@ -1258,6 +1261,8 @@ def test_evidence_pack_round_trip() -> None:
     assert rebuilt.static_status == pack.static_status
     assert rebuilt.executable is False
     assert rebuilt.schema_version == "1.0.0"
+    assert rebuilt.run_id is None
+    assert rebuilt.authorized_online_provider is None
     assert rebuilt.issue_codes == pack.issue_codes
 
 
@@ -1364,3 +1369,116 @@ def test_scope_rejection_blocked_upstream() -> None:
 
     assert len(provider.calls) == 0
     assert len(store.saved) == 0
+
+
+def _valid_pack_dict_v11() -> dict[str, Any]:
+    data = _valid_pack_dict()
+    data["schemaVersion"] = "1.1.0"
+    data["runId"] = "a" * 32
+    data["authorizedOnlineProvider"] = True
+    return data
+
+
+def test_v10_pack_does_not_imply_online_authorization() -> None:
+    pack = EvidencePackV3.model_validate(_valid_pack_dict())
+    assert pack.schema_version == "1.0.0"
+    assert pack.run_id is None
+    assert pack.authorized_online_provider is None
+    via_json = EvidencePackV3.model_validate_json(json.dumps(_valid_pack_dict()))
+    assert via_json.authorized_online_provider is None
+
+    null_auth = _valid_pack_dict()
+    null_auth["authorizedOnlineProvider"] = None
+    null_pack = EvidencePackV3.model_validate(null_auth)
+    assert null_pack.authorized_online_provider is None
+    null_via_json = EvidencePackV3.model_validate_json(json.dumps(null_auth))
+    assert null_via_json.authorized_online_provider is None
+
+
+def test_v11_pack_requires_run_id_and_authorization() -> None:
+    pack = EvidencePackV3.model_validate(_valid_pack_dict_v11())
+    assert pack.schema_version == "1.1.0"
+    assert pack.run_id == "a" * 32
+    assert pack.authorized_online_provider is True
+    via_json = EvidencePackV3.model_validate_json(json.dumps(_valid_pack_dict_v11()))
+    assert via_json.authorized_online_provider is True
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"runId": None},
+        {"runId": "not-a-valid-run-id"},
+        {"runId": "g" * 32},
+        {},
+    ],
+)
+def test_v11_rejects_missing_or_forged_run_id(overrides: dict[str, Any]) -> None:
+    data = _valid_pack_dict_v11()
+    if overrides:
+        data.update(overrides)
+    else:
+        del data["runId"]
+    with pytest.raises(ValidationError):
+        EvidencePackV3.model_validate(data)
+
+
+def test_v11_rejects_false_or_null_authorization() -> None:
+    for value in (None, False):
+        data = _valid_pack_dict_v11()
+        data["authorizedOnlineProvider"] = value
+        with pytest.raises(ValidationError):
+            EvidencePackV3.model_validate(data)
+        with pytest.raises(ValidationError):
+            EvidencePackV3.model_validate_json(json.dumps(data))
+
+
+def test_v11_rejects_missing_authorization_field() -> None:
+    data = _valid_pack_dict_v11()
+    del data["authorizedOnlineProvider"]
+    with pytest.raises(ValidationError):
+        EvidencePackV3.model_validate(data)
+    with pytest.raises(ValidationError):
+        EvidencePackV3.model_validate_json(json.dumps(data))
+
+
+def _assert_authorization_type_error(exc: ValidationError, value: object) -> None:
+    matching = [
+        err
+        for err in exc.errors()
+        if {"authorizedOnlineProvider", "authorized_online_provider"}
+        & {str(part) for part in err.get("loc", ())}
+    ]
+    assert matching, exc.errors()
+    assert any(err.get("type") == "bool_type" or err.get("input") == value for err in matching)
+
+
+@pytest.mark.parametrize("value", ["yes", "true", "false", 1, 0, 1.0])
+def test_v11_rejects_non_boolean_authorization_values(value: object) -> None:
+    data = _valid_pack_dict_v11()
+    data["authorizedOnlineProvider"] = value
+    with pytest.raises(ValidationError) as dict_exc:
+        EvidencePackV3.model_validate(data)
+    _assert_authorization_type_error(dict_exc.value, value)
+    with pytest.raises(ValidationError) as json_exc:
+        EvidencePackV3.model_validate_json(json.dumps(data))
+    json_input = json.loads(json.dumps(value))
+    _assert_authorization_type_error(json_exc.value, json_input)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"runId": "a" * 32},
+        {"authorizedOnlineProvider": True},
+        {"authorizedOnlineProvider": False},
+        {"runId": "a" * 32, "authorizedOnlineProvider": True},
+    ],
+)
+def test_v10_rejects_non_empty_authorization_fields(overrides: dict[str, Any]) -> None:
+    data = _valid_pack_dict()
+    data.update(overrides)
+    with pytest.raises(ValidationError):
+        EvidencePackV3.model_validate(data)
+    with pytest.raises(ValidationError):
+        EvidencePackV3.model_validate_json(json.dumps(data))

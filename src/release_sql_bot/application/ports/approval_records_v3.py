@@ -3,8 +3,8 @@
 The trusted M3/M6 application service must verify approval truthiness
 through a controlled read-only approval-record port before any provider
 call or store write. This port abstracts the metadataReview approval
-source; the real adapter is NOT implemented in this delivery. Only the
-protocol and an in-memory test adapter are provided.
+source. The MongoDB implementation also requires a separately validated
+active lifecycle pointer before returning a record.
 
 The in-memory adapter queries pre-registered synthetic records. It never
 "returns the caller's record" and never "always approves" — it is a
