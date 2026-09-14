@@ -253,6 +253,26 @@ ApprovalRecordV3（camelCase、extra=forbid、strict、insert-only）
 - **本轮仅设计，不实现存储或事务**；设计已随 M0 审批包批准，真实存储与事务实现仍属 M6 前
   后续里程碑。
 
+#### 3.3.1 切片 4：批准记录文档形状与 active pointer（2026-09-14，用户授权实施）
+
+为首次真实联调冻结以下 MongoDB 只读消费契约：
+
+- `approval_records_v3` 保存**裸、不可变、insert-only** 的 `ApprovalRecordV3` camelCase wire；
+  MongoDB `_id` 由投影剥离，不允许其它包装或审计字段混入业务载荷。
+- 当前有效性使用独立集合 `approval_record_active_pointers_v3`。metadataReview 是唯一写入 owner，
+  通过 compare-and-swap 更新指针；SqlBot 只有只读查询权限，不创建、修改或修复指针。
+- 指针 wire 为 `ApprovalRecordActivePointerV3`（`schemaVersion="1.0.0"`、camelCase、
+  `extra=forbid`、strict）：`approvalId`、`approvalContentSha256`、
+  `state=active|revoked|superseded`、`revision>=1`、带时区 `changedAt`、`actorRef`、
+  `previousPointerSha256`（revision=1 时必须为 null，revision>1 时必须为 SHA-256）、
+  `contentSha256`（排除自身后的 canonical SHA-256）。
+- 读取顺序固定为：精确读取并验证批准记录 → 精确读取并验证同 approvalId 指针 →
+  比较 `approvalContentSha256` → 仅 `state=active` 返回批准记录。
+- 指针缺失、`revoked`、`superseded` 或绑定的批准哈希不一致时 fail closed，provider/store
+  调用为 0；结构、自哈希或查询错误按批准端口不可用处理，错误和日志不得携带文档内容或连接信息。
+- active pointer 的历史审计与 CAS 写入由 metadataReview 负责；本切片不提供任何写接口，
+  也不把调用方携带的状态当作真实生命周期证明。
+
 #### `validate_approval_closure_v3` 纯函数（M1 实现，V3 专属）
 
 M1 不实现 `ResolveMetadataRequestV3`，但 M1 契约测试需要验证 context/snapshot/approval 三者关系。
@@ -1604,6 +1624,50 @@ context/snapshot/grants；离线 fake provider 实现和测试不以真实 provi
 **禁止**：不读取 .env、不连接真实数据库/在线模型、不扩大 SQL/事实范围、
 不改允许列表和证据包契约、不实现审批发布/context 生命周期/Phase 5。
 
+#### M6 入口形态冻结（2026-09-14，用户批准）
+
+本段关闭第 14 节开放问题 6（M6 编排与证据包的入口形态与授权记录方式）。
+
+本冻结只确定**入口形态与每次运行必须显式授权**。它不表示切片 3 实现已通过验收，
+也不批准把 `runId` / `authorizedOnlineProvider` 排除出证据包。
+
+- **入口形态**：本地 CLI 子命令 `generate-v3`，不新增 HTTP 路由。
+  理由：与 Phase 5A `validate-sqlserver` 一致；每次运行的授权便于逐次记录；
+  不暴露网络面。
+- **授权开关**：每次运行必须显式传入 `--authorize-online-provider`。
+  缺失该标志时立即退出（退出码 4），不得读取输入、不得装配资源、
+  不得调用 provider、不得写证据包。
+- 本冻结不涵盖真实 MongoDB / 真实在线模型；切片 4 仍须针对当次任务另行明确授权。
+
+#### M6 证据包 1.1.0 授权审计字段（2026-09-14，验收修复设计）
+
+切片 3 独立验收判定：授权标志、运行时间、`runId` 必须同时写入证据包与 stdout 摘要。
+先前把证据包字段写成「后续合同扩展 / 用户批准延期」与该要求冲突，现更正。
+
+兼容策略：
+
+- 保留 `schemaVersion="1.0.0"`：离线编排 `run_offline_v3_evidence_loop` 继续产出 1.0.0，
+  既有离线证据包仍可读取。`runId` / `authorizedOnlineProvider` 缺失时为 `null`，
+  **不得**默认生成 `runId`，**不得**默认 `authorizedOnlineProvider=true`。
+- CLI `generate-v3` 落盘 `schemaVersion="1.1.0"`。在写文件前用
+  `EvidencePackV3.model_validate` 构造完整 1.1.0 包；禁止未经校验的
+  `model_copy(update=...)` 或向 JSON 拼接额外字段。
+- `EvidencePackV3` 新增（`frozen` / `extra=forbid` / camelCase 不变）：
+  - `runId`（`run_id: str | None`）
+  - `authorizedOnlineProvider`（`authorized_online_provider: StrictBool | None`）
+    仅对该字段启用严格布尔校验，不把整个 `EvidencePackV3` / `V3ReportModel`
+    改为 `strict`。JSON 布尔 `true` 才是 1.1.0 合法授权值；不接受字符串
+    （`"yes"` / `"true"` / `"false"`）或数字（`1` / `0` / `1.0`）的隐式转换。
+- 1.1.0 强制：`runId` 为 32 位小写十六进制（`uuid4().hex`）；
+  `authorizedOnlineProvider` 必须为 JSON 布尔 `true`，不能缺失、`null` 或 `false`。
+- 1.0.0 禁止携带非空新授权字段（非空 `runId` 或非 null 授权字段），
+  防止伪装成旧版本绕过 1.1.0 约束。1.0.0 仍允许该字段缺失或 JSON `null`。
+- stdout 一行 JSON 摘要在既有字段上增加 `startedAt` / `endedAt`，
+  直接取 1.1.0 证据包同名字段；摘要与落盘的
+  `runId` / `authorizedOnlineProvider` / `startedAt` / `endedAt` 必须逐项相等。
+- 授权值来自本次实际解析的 `--authorize-online-provider`，不是写死字面量。
+- 不放宽既有阶段一致性与其它字段约束。
+
 #### M3/M4 切片：严格实体键等值 filters（2026-09-14，已完成）
 
 本轮扩展 M3/M4，支持 source 请求中与已授权实体键一致的参数等值 filters。
@@ -1736,18 +1800,19 @@ Git 提交需用户另行明确授权；M1 已启动（`in_progress`），首个
 | # | 问题 | Owner | 阻断 |
 | --- | --- | --- | --- |
 | 1 | ApprovalRecordV3 结构（§3.3）与 M1 创建/版本语义已随五项设计获批；**M1 契约及九组纯计算批准闭包校验已完成，该项不再阻断 M1**；真实存储、生命周期和受信批准来源核验仍属后续门禁，按 §3.6、M3/M6 和开放问题第 2 项执行 | metadataReview + sqlBot | **已关闭（M1 范围）** |
-| 2 | context 生命周期事件记录/active pointer 的存储设计与审计载体（3.2 节方案的实施确认；M1 只做契约与纯计算校验，存储设计在 M6 编排前冻结） | sqlBot + metadataReview | M6 |
+| 2 | context/approval 生命周期 active pointer 的存储设计与审计载体 | sqlBot + metadataReview | **已关闭（首次真实联调范围）**：批准记录文档形状与只读 active pointer 门禁见 §3.3.1；metadataReview 的 CAS 写入与历史审计仍由其负责 |
 | 3 | V3 Prompt 版本命名与 `exactOutputDeclarations` 等价结构设计 | sqlBot | M3 |
 | 4 | parser-neutral 检查是提取共享模块还是 V3 内参数化副本（两者都合规，实施时二选一并登记） | sqlBot | M4 |
 | 5 | V3 存储集合授权、账号隔离与配置键命名 | 运维 | M5 |
-| 6 | M6 编排与证据包的入口形态（CLI/HTTP）与授权记录方式 | 用户 | M6 |
+| 6 | M6 编排与证据包的入口形态（CLI/HTTP）与授权记录方式 | 用户 | **已关闭**（入口形态见「M6 入口形态冻结（2026-09-14，用户批准）」；`runId` / `authorizedOnlineProvider` 落盘见「M6 证据包 1.1.0 授权审计字段（2026-09-14，验收修复设计）」） |
 | 7 | `entityType`/`grain` 到授权 relation 的映射（§5.3 第 2 步）：实体键辅助解析（`_resolve_fields_and_entity_keys_v3`）已实现，但不证明 `entityType`/`grain` → 授权 relation 的映射要求已实现；该映射尚未实现，需澄清设计，且不新增映射契约、不推断业务关系 | sqlBot（实现）；metadataReview（授权语义复核） | 该映射的实现与完整 M2 验收；不阻断已明确契约的独立离线子任务 |
 
 > 已决事项登记：`usage_traceability_sha256` 的参与字段、排序键与重复身份规则已于 5.4 节
 > 冻结（原开放问题"M2 前冻结摘要规范"关闭）；上游提交与来源哈希复核已由 2026-09-09 T0
 > 完成（历史开放问题 7 — 上游提交与来源哈希复核 — 已关闭。当前表第 7 项是另行新增的 entityType/grain 映射问题，与历史问题不是同一事项）；
-> ApprovalRecordV3 结构与 M1 创建/版本语义已于 §3.3 随五项设计获批，撤销/active
-> pointer/supersession/MongoDB 事务仍由 M6 开放问题 2 承载。
+> ApprovalRecordV3 结构与 M1 创建/版本语义已于 §3.3 随五项设计获批；切片 4 只读
+> 消费的批准记录形状与 active pointer 门禁见 §3.3.1。metadataReview 仍是 CAS 写入
+> 与历史审计的唯一 owner，本仓库不创建或修复批准材料。
 
 ## 15. 文档影响
 
