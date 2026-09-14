@@ -94,7 +94,7 @@
 
 ### 技术与交付
 
-- [PROG-20260912：V3 M3 生成切片 + M4 静态门禁 + M5 第一切片（受限 source 单关系切片，含多轮修复与离线存储）](progress/PROG-20260912.md)
+- [PROG-20260912：V3 M3/M4/M5/M6 离线切片（受限 source 单关系生成、静态门禁、存储装配、证据包编排、离线证据包演示脚本，含 M6 审核修复）](progress/PROG-20260912.md)
 - [PROG-20260911：V3 M2 内容闭包校验、usage 追溯摘要、解析请求/报告契约与审核修复](progress/PROG-20260911.md)
 - [PROG-20260910：V3 M1 最后切片（handoff 契约、批准校验测试补缺和进度收口）](progress/PROG-20260910.md)
 - [BUG-20260910-01：BindingResolutionReportV3 报告契约缺口（blocked 输出漏洞与静默规范化）](bugs/BUG-20260910-01-v3-binding-resolution-report-contract-gaps.md)

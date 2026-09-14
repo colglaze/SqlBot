@@ -205,9 +205,15 @@ def _check_m3_scope(payload: GenerateSqlCandidateRequestV3) -> None:
     if str(tr.mode) != "none":
         raise CandidateScopeErrorV3("M3_SCOPE_UNSUPPORTED_TIME_RANGE")
 
-    # filters.items must be empty
+    # filters.items must be empty OR contain only strict entity-key eq filters.
     if request.query_requirements.filters.items:
-        raise CandidateScopeErrorV3("M3_SCOPE_UNSUPPORTED_FILTERS")
+        from release_sql_bot.application.filter_constraints_v3 import (
+            qualified_filter_param_names,
+        )
+
+        qualified = qualified_filter_param_names(payload)
+        if not qualified:
+            raise CandidateScopeErrorV3("M3_SCOPE_UNSUPPORTED_FILTERS")
 
     # Fields: only factValue + entity keys allowed.
     # factValue is enforced by the consumer's own closure; here we only

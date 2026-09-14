@@ -436,6 +436,7 @@ def _semantic(p, r, s):
         issues.append(_issue("SQL_PARAM_MISMATCH", "AST 参数与事实参数不一致。", _GATE_WHERE))
 
     issues.extend(_check_keys(s, r))
+    issues.extend(_check_filters(p, r, s))
     return issues
 
 
@@ -510,4 +511,49 @@ def _check_keys(s, r):
         if pn not in expected:
             issues.append(_issue("SQL_KEY_EXTRA", f"多余实体键条件：{pn}。", _GATE_WHERE))
 
+    return issues
+
+
+def _check_filters(p, r, s):
+    """Independently validate filter constraints against the AST.
+
+    Re-runs the strict qualification check from scratch (does not trust M3)
+    and verifies that every qualified filter's parameter is covered by an
+    entity-key equality predicate in the WHERE clause.
+    """
+    from release_sql_bot.application.filter_constraints_v3 import (
+        qualified_filter_param_names,
+    )
+
+    binding = p.generation_request.resolution_request.binding_request
+    if not binding.query_requirements.filters.items:
+        return []
+
+    qualified = qualified_filter_param_names(p.generation_request)
+    if not qualified:
+        # Filters exist but are not strict entity-key eq — blocked.
+        return [_issue("SQL_FILTER_UNSUPPORTED", "存在不支持的过滤条件。", _GATE_WHERE)]
+
+    # Build the set of entity-key params present in the AST WHERE.
+    ast_key_params = set()
+    for comp in s.comparisons:
+        if comp.operator != "eq":
+            continue
+        if comp.left_is_literal or comp.right_is_literal:
+            continue
+        if comp.left_column and comp.right_parameter:
+            ast_key_params.add(comp.right_parameter)
+        elif comp.right_column and comp.left_parameter:
+            ast_key_params.add(comp.left_parameter)
+
+    issues = []
+    for pn in qualified:
+        if pn not in ast_key_params:
+            issues.append(
+                _issue(
+                    "SQL_FILTER_MISSING",
+                    f"过滤条件未在 WHERE 中体现：{pn}。",
+                    _GATE_WHERE,
+                )
+            )
     return issues

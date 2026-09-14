@@ -1437,6 +1437,235 @@ context/snapshot/grants；离线 fake provider 实现和测试不以真实 provi
 - 失败语义：沿用 Phase 4R 状态机，停在当前阶段并记录 issue codes。
 - 测试范围：矩阵 1–13 全量 + 端到端编排失败路径。
 
+#### M6 第一刀实施范围（2026-09-14，已完成）
+
+本轮完成 M6 第一刀：证据包契约 + 离线编排函数的全部离线实现，
+不包括真实仓储适配器装配、在线 provider 调用、CLI/HTTP 路由、context 生命周期存储。
+
+**新增文件（3 个）：**
+
+1. `src/release_sql_bot/domain/evidence_pack_v3.py`：
+   `EvidencePackV3(V3ReportModel, schemaVersion="1.0.0")` camelCase/extra=forbid/frozen。
+   必填字段：schemaVersion, stage, ruleVersion, requestId, batchSha256, payloadSha256,
+   repositoryVerificationStatus, contextSha256, snapshotSha256, resolutionReportSha256,
+   candidateContentSha256(nullable), storeOutcome(nullable), staticStatus(nullable),
+   staticReportSha256(nullable), provider/model/promptVersion(nullable),
+   attemptCount(default 0), issueCodes(tuple), startedAt, endedAt, executable(always false)。
+   禁止包含：SQL 文本、参数值、对象/字段清单、连接串、URI、API Key、provider 原始响应。
+   不从 V2 证据/编排模块 import 契约类型。
+
+2. `src/release_sql_bot/application/evidence_loop_v3.py`：
+   `run_offline_v3_evidence_loop` 公开编排函数。行为：
+   （1）生成失败 → 不 store.save，不静态；stage=blockedUpstream；
+   candidateContentSha256/storeOutcome/staticStatus 均为 null。
+   （2）生成成功后先 save。stored/duplicate → 再静态校验。
+   （3）store unavailable/failed → 记录真实 storeOutcome，跳过静态，stage=candidateGenerated，
+   candidateContentSha256 仍填，staticStatus=null。
+   （4）静态 blocked → stage=candidateStored，staticStatus=blocked，
+   issueCodes 含 STATIC_VALIDATION_BLOCKED；候选生命周期不变；不得再 save。
+   （5）静态 passed → stage=evidenceComplete，staticStatus=passed。
+   （6）全程 executable=false。initialize/close 由调用方负责。
+
+3. `tests/unit/test_evidence_loop_v3.py`（12 项）：
+   A. 合法 SQL → evidenceComplete；B. 仓储无批次 → provider 0, save 0；
+   C. provider 拒绝 → provider 1, save 0；D. FakeStore failed → save 1, static 跳过；
+   E. ABS() SQL → save 1 STORED, static blocked；F. 泄漏检查；G. 输入 wire 不变。
+
+**验证**：`uv run pytest` → 1265 passed, 1 warning（M6 专项 12 项全含）。
+
+**禁止**：改 V2 模块、新增 CLI/HTTP 路由、context 生命周期存储；
+把证据包提交进 Git；调用 SQL Server 验证；从 V2 证据/编排模块 import 契约类型；
+把 BUG-20260906-01 标为关闭。
+
+#### M6 第一刀审核修复设计（2026-09-14）
+
+本轮修复 M6 第一刀审核发现的三类问题，仅完成离线证据包收尾，不进入下一里程碑。
+
+**1. 运行证据失真修复**
+
+- 在 `evidence_loop_v3.py` 内引入 `CountingProviderProxy`，实现
+  `CandidateModelProvider` 协议，每次调用底层 `generate` 前计数，
+  原样转发请求、响应及异常。`attemptCount` 必须等于代理实际调用次数，
+  禁止用异常类型推测（如"拒绝固定 1 次"或 `max_retries+1`）。
+- `repository_verification_status` 判定规则：
+  - 代理 `call_count > 0` → provider 已被调用 → M3 前置门禁通过 → `"verified"`；
+    后续 provider 拒绝、重试耗尽、输出非法均不得写 `"failed"`。
+  - `call_count == 0` → 未调用 provider → 按 gate/scope error code 映射：
+    仓储/批准端口不可用 code → `"unavailable"`，其它 → `"failed"`。
+- provider 异常无 `.code` 属性时使用 DEV 登记的固定中性 code：
+  - `M6_PROVIDER_REJECTED`（`CandidateGenerationProviderRejectedV3Error`）；
+  - `M6_PROVIDER_UNAVAILABLE`（`CandidateGenerationProviderUnavailableV3Error`）；
+  - `M6_GENERATION_OUTPUT_INVALID`（`CandidateGenerationOutputInvalidV3Error`）。
+- store `failed`/`unavailable` 记录固定中性 issue code：
+  - `M6_STORE_SAVE_FAILED`；
+  - `M6_STORE_UNAVAILABLE`。
+- gate/scope 错误保留既有稳定 code（`exc.code`），不得复制 `str(exc)`。
+
+**2. 敏感字符串传播修复**
+
+- 禁止直接把 `response.provider` 等不可信字符串复制进证据包。
+- 为当前离线切片明确可信标识来源和精确允许列表：
+  - `provenance.provider` 来自 `response.provider`（模型响应，不可信）；
+  - `request.model` 来自调用方参数（不可信，需允许列表校验）；
+  - `request.prompt_version` 来自应用层 prompt 构建（不可信，需允许列表校验）。
+- 离线切片可信标识精确允许列表（不使用正则）：
+  - provider：`{"fixed-offline-v3"}`（测试替身）；
+  - model：`{"fixed-model-v3"}`；
+  - promptVersion：`{"sqlserver-fact-candidate-v3.0"}`。
+- 不可信标识输出 null，并记录固定中性 code：
+  - provider → `M6_PROVIDER_IDENTITY_UNTRUSTED`；
+  - model → `M6_MODEL_IDENTITY_UNTRUSTED`；
+  - promptVersion → `M6_PROMPT_VERSION_UNTRUSTED`。
+- 校验只影响证据包输出；不得替换发送给 provider 的 model，
+  不得改写候选、候选哈希或存储内容。
+- 不记录原始异常、响应、SQL、参数值、URI 或密钥。
+- 实际候选及存储内容不变（候选 dump、store outcome 如实记录）。
+
+**2.1. provider 失败时保留请求证据（r2 新增）**
+
+- `CountingProviderProxy` 在每次调用底层 `generate` 前，
+  记录实际请求中经过上述安全校验的 `model`/`promptVersion`。
+- 不保存完整请求、system_prompt、user_prompt、原始响应或异常消息。
+- provider 调用次数 > 0 后发生拒绝/重试耗尽/输出非法：
+  `repositoryVerificationStatus=verified`；
+  `model`/`promptVersion` 使用代理已记录的安全值。
+- provider 调用次数为 0 时，`provider`/`model`/`promptVersion` 均为 null。
+
+**3. 契约修复**
+
+- `candidateContentSha256`/`storeOutcome`/`staticStatus`/`staticReportSha256`/
+  `provider`/`model`/`promptVersion` 必须出现（`...`），但允许 null；去掉 `default=None`。
+- `storeOutcome` 限定为 `stored`/`duplicate`/`unavailable`/`failed`/`null`（`Literal` 约束）。
+- 补充阶段一致性校验（`model_validator`）：
+  - `blockedUpstream`：候选、存储、静态字段均 null；
+    `attemptCount=0` 时 `model`/`promptVersion`/`provider` 均 null；
+    `attemptCount>0` 时允许安全 `model`/`promptVersion`（不可信降级为 null）。
+  - `candidateGenerated`：候选 hash 非空，store 为 `failed`/`unavailable`，静态字段均 null；
+  - `candidateStored`：候选 hash 非空，store 为 `stored`/`duplicate`，
+    `staticStatus=blocked`，静态 hash 非空；
+  - `evidenceComplete`：候选 hash 非空，store 为 `stored`/`duplicate`，
+    `staticStatus=passed`，静态 hash 非空。
+- 静态 blocked 时使用精确 `STATIC_VALIDATION_BLOCKED`（恢复与静态门禁一致的原稳定码）。
+- 保持 camelCase、`extra=forbid`、`frozen`、`executable=false`；`attemptCount` 保留默认 0。
+
+**固定中性 code 登记总表**
+
+| Code | 触发条件 |
+|---|---|
+| `STATIC_VALIDATION_BLOCKED` | 静态门禁阻断（原稳定码） |
+| `M6_PROVIDER_REJECTED` | provider 永久拒绝 |
+| `M6_PROVIDER_UNAVAILABLE` | provider 重试耗尽 |
+| `M6_GENERATION_OUTPUT_INVALID` | 输出非法重试耗尽 |
+| `M6_STORE_SAVE_FAILED` | store 返回 failed |
+| `M6_STORE_UNAVAILABLE` | store 返回 unavailable |
+| `M6_PROVIDER_IDENTITY_UNTRUSTED` | provider 标识不在允许列表 |
+| `M6_MODEL_IDENTITY_UNTRUSTED` | model 标识不在允许列表 |
+| `M6_PROMPT_VERSION_UNTRUSTED` | promptVersion 不在允许列表 |
+
+#### M6 离线证据包演示脚本（2026-09-14，已完成）
+
+本轮新增 M6 离线证据包演示脚本，执行一条命令即可运行真实 V3 编排并
+生成可查看的 `EvidencePackV3` JSON。不进入下一切片，不修改既有业务模块。
+
+**新增文件（2 个）：**
+
+1. **`scripts/preview_evidence_v3.py`**：
+   - 复用 `scripts/preview_synthetic_v3` 的现成构造函数
+     （`_build_generation_request`、`_build_synthetic_handoff_repository`、
+     `_build_synthetic_approval_port`、`_synthetic_provider_content`），不复制大段 fixture。
+   - provider 标识固定 `fixed-offline-v3`；请求 model 使用 `fixed-model-v3`
+     （与 M6 当前允许列表一致）。
+   - 脚本内实现最小内存 candidate store，`save` 返回当前候选真实 hash；
+     不实例化真实 MongoDB adapter。
+   - 调用 `run_offline_v3_evidence_loop`，`max_retries=0`。
+   - `store.initialize/close` 由脚本负责，`close` 放 `finally`。
+   - 默认输出 `.codex_tmp/v3-evidence-pack.json`；支持 `--output-dir`。
+   - 退出码：`0` = evidenceComplete；`2` = 其他阶段（仍保存证据包）；
+     `3` = 文件创建/写入失败。
+   - **文件已存在时不跑编排，保留原文件并返回 `3`**；先检查后编排，无覆盖开关。
+   - stdout 仅显示 stage/storeOutcome/staticStatus/attemptCount/issueCodes/
+     executable/输出路径；不输出 SQL、参数、原始响应或连接信息。
+
+2. **`tests/contract/test_preview_evidence_v3_script.py`**（10 项）：
+   - 默认成功路径：`EvidencePackV3` 校验通过，`evidenceComplete`/`stored`/
+     `static passed`/`attemptCount=1`/`executable=false`，安全元信息齐全。
+   - `--output-dir` 经 `main()` 生效。
+   - 文件已存在时退出 `3`，原字节不变，provider=0，save=0，stderr 含「已存在」。
+   - 空批次仓储 → `blockedUpstream`，退出 `2`，provider=0，save=0，失败证据包可解析。
+   - store failed → `candidateGenerated`，退出 `2`，静态未调用，错误码与候选 hash 保留。
+   - 正常及失败路径均关闭 store。
+   - `main()` + `capsys` 泄漏检查：证据包 JSON、stdout、stderr、repr(pack) 均不含
+     `synthetic_value`/`synthetic_table`/`FROM dbo`/`SELECT`。
+
+**验证**：`uv run pytest tests/contract/test_preview_evidence_v3_script.py` →
+10 passed；`uv run python -m scripts.preview_evidence_v3 --output-dir <新空目录>` →
+退出 `0`，输出 `v3-evidence-pack.json`，文件被 `.gitignore` 忽略。
+
+**禁止**：不读取 .env、不连接真实数据库/在线模型、不扩大 SQL/事实范围、
+不改允许列表和证据包契约、不实现审批发布/context 生命周期/Phase 5。
+
+#### M3/M4 切片：严格实体键等值 filters（2026-09-14，已完成）
+
+本轮扩展 M3/M4，支持 source 请求中与已授权实体键一致的参数等值 filters。
+
+**语义与边界：**
+
+支持条件（必须全部满足）：
+1. factKind=source、aggregation.mode=none、timeRange.mode=none、单一关系、无 JOIN；
+2. 每个 filter：operator=eq、value.kind=parameter、required=true、
+   nullPolicy=error；
+3. 参数存在于 fact.parameters，role=entityKey、required=true；
+4. filter.fieldId 与该参数对应的实体键授权 fieldId 完全一致；
+5. M2 resolvedFilter 与 resolvedEntityKey 解析为同一 schema/relation/column；
+6. 该列在已批准快照中明确 nullable=false。
+
+继续阻断：literal、gte 等非 eq 算子、可选 filter、其他 nullPolicy、
+错字段/参数、可空实体键列、聚合、exists、JOIN、时间范围。
+
+**新增文件（1 个）：**
+
+1. `src/release_sql_bot/application/filter_constraints_v3.py`：
+   纯计算辅助模块 `qualified_filter_param_names`，逐个 filter 建立
+   可确定性复核的对应关系。M3/M4 分别独立调用，互不信任。
+
+**修改文件（4 个）：**
+
+2. `src/release_sql_bot/application/candidates_v3.py`：
+   将 `filters.items` 非空一律拒绝改为严格资格检查。
+
+3. `src/release_sql_bot/application/prompts_v3.py`：
+   Prompt 版本升至 `sqlserver-fact-candidate-v3.1`，新增
+   `filterConstraints` 字段提供确定性解析后的 filter 约束。
+
+4. `src/release_sql_bot/application/sql_validation_v3.py`：
+   新增 `_check_filters`，独立从完整输入重算过滤条件合法性并与 AST 对应。
+
+5. `src/release_sql_bot/domain/sql_candidates_v3.py`：
+   `CandidateProvenanceV3.prompt_version` 增加 `v3.1`；
+   `SqlTemplateCandidateV3` 范围说明更新。
+
+**M6 同步（1 个）：**
+
+6. `src/release_sql_bot/application/evidence_loop_v3.py`：
+   仅 prompt 版本允许列表增加 `v3.1`；未改允许列表。
+
+**新增测试（2 个文件 / 22 项）：**
+
+- `tests/unit/test_candidates_v3_filters.py`（19 项）：
+  旧路径兼容、单/多合法 filter、混合阻断、非法形状参数化、
+  非 eq 算子、字面值阻断、M6 端到端 evidenceComplete、输入不变。
+- `tests/unit/test_sql_validation_v3_filters.py`（3 项）：
+  无 filter 返回空、单合法 filter 合格、不合格 filter 不达标。
+
+**验证**：`uv run pytest` → **1332 passed**（M6 单元 47 + 演示合约 10 +
+M3/M4 filter 22 + 其它各项全含）。
+
+**禁止**：未连接真实 MongoDB/在线模型、未扩大允许列表、
+未实现审批发布/context 生命周期/Phase 5、未关闭 BUG-20260906-01。
+
+**残留边界**：真实仓储适配器装配、在线 provider、生产 CLI/HTTP、
+context 生命周期、Phase 6 审核发布仍需用户授权。
+
 ## 13. 上游 RuleAgent 外部前置（M0 外部依赖）
 
 **观察口径（2026-09-06 二轮审查冻结）**：RuleAgent 工作区处于活跃并行变化中；下列每组数字

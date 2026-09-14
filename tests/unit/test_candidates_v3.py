@@ -814,7 +814,7 @@ def test_candidate_fixed_status_and_audit():
     assert candidate.executable is False
     assert candidate.review_status == "pending"
     assert candidate.schema_version == "3.0.0"
-    assert candidate.provenance.prompt_version == "sqlserver-fact-candidate-v3.0"
+    assert candidate.provenance.prompt_version == "sqlserver-fact-candidate-v3.1"
 
 
 # ---------------------------------------------------------------------------

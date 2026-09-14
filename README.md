@@ -73,7 +73,16 @@ M4 首版受限语法静态门禁已交付（`validate_sql_candidate_v3`，仅�
 不支持 JOIN/CTE/子查询/UNION/聚合/函数/星号/DML/临时对象/跨数据库引用）；
 M5 第一切片已完成（独立 V3 存储契约、端口、MongoDB 适配器及配置，fake 驱动离线验证通过，
 insert-only、唯一 hash、幂等、失败降级不变量全部覆盖）；
-M5 下一切片（生成后存储装配）与 M6（编排与证据包）尚未开工。完整 V3 下游链未打通。
+M5 第二切片（生成后存储装配 `generate_and_store_sql_candidate_v3`）已完成并通过离线验证；
+M3/M4 已扩展支持严格实体键等值 filters（operator=eq、parameter、
+required=true、nullPolicy=error、可空列、字段/参数/解析一致），
+prompt 版本 `sqlserver-fact-candidate-v3.1`；
+M6 第一刀已完成（证据包契约 `EvidencePackV3`、离线编排 `run_offline_v3_evidence_loop`，
+含审核修复：计数代理、verified-on-call、provider 允许列表、阶段一致性校验），
+并提供了完全离线的演示入口 `uv run python -m scripts.preview_evidence_v3`
+（产出被 Git 忽略的 `EvidencePackV3` JSON，详见本文"V3 离线证据包演示"小节；这不是生产 CLI/HTTP）。
+M6 尚未整体完成（真实仓储适配器装配、在线 provider 调用、CLI/HTTP 路由仍缺）。
+完整 V3 下游链未在线打通。
 禁止把 V3 转换、裁剪或降级为 V2 契约
 （见 [REQ-20260906-04](docs/requirements/REQ-20260906-04-v3-downstream-pipeline-alignment.md)
 与 [BUG-20260906-01](docs/bugs/BUG-20260906-01-v3-phase4r-downstream-contract-gap.md)）。
@@ -134,6 +143,22 @@ uv run python -m scripts.preview_synthetic_v2
 `.codex_tmp/v2-static-report.json`。该脚本为 2026-09-05 依据当前 0.3.0 契约的重新实现，替代在
 历史脱敏改写中丢失的原件（见
 [BUG-20260901-01](docs/bugs/BUG-20260901-01-v2-live-provider-coverage-declaration.md)）。
+
+### V3 离线证据包演示
+
+运行 V3 证据包演示脚本，走同一套真实 M6 编排生成 `EvidencePackV3` JSON：
+
+```powershell
+uv run python -m scripts.preview_evidence_v3
+uv run python -m scripts.preview_evidence_v3 --output-dir .codex_tmp
+```
+
+输出写入被 Git 忽略的 `.codex_tmp/v3-evidence-pack.json`。
+stdout 仅显示 stage/storeOutcome/staticStatus/attemptCount/issueCodes/executable 和输出路径，
+不输出 SQL 文本、参数或原始响应。退出码 `0` = evidenceComplete，`2` = 其他阶段，`3` = 文件错误。
+文件已存在时退出 `3`，保留原文件，不重复跑编排。
+该脚本完全离线：不读取 .env，不连接 MongoDB/SQL Server/在线模型。
+
 也可启动服务后在 `/docs` 以完整、合成脱敏且已确定性解析为
 `metadataResolved` 的
 `GenerateSqlCandidateRequestV2` 调用 `/api/v1/sql-candidates/v2/generate`，并把生成请求与候选一起提交

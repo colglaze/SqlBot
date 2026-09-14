@@ -264,7 +264,9 @@ class CandidateProvenanceV3(V3ReportModel):
     provider: str = Field(min_length=1, max_length=120)
     model: str = Field(min_length=1, max_length=160)
     response_model: str = Field(min_length=1, max_length=160)
-    prompt_version: Literal["sqlserver-fact-candidate-v3.0"] = "sqlserver-fact-candidate-v3.0"
+    prompt_version: Literal["sqlserver-fact-candidate-v3.0", "sqlserver-fact-candidate-v3.1"] = (
+        "sqlserver-fact-candidate-v3.1"
+    )
     provider_request_id: str = Field(min_length=1, max_length=240)
     system_fingerprint: str | None = Field(default=None, max_length=240)
     attempt_count: int = Field(ge=1, le=6)
@@ -280,7 +282,8 @@ class SqlTemplateCandidateV3(V3ReportModel):
     self-hash excluding the contentSha256 field itself.
 
     M3 first-delivery scope: source facts, no aggregation, no time range,
-    no filters, no joins, single authorized relation.
+    only strict entity-key eq filters (qualified via filter_constraints_v3),
+    no joins, single authorized relation.
     """
 
     schema_version: Literal["3.0.0"] = "3.0.0"

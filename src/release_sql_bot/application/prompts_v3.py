@@ -24,7 +24,7 @@ from release_sql_bot.domain.sql_candidates_v3 import (
     GenerateSqlCandidateRequestV3,
 )
 
-SQLSERVER_CANDIDATE_PROMPT_VERSION_V3 = "sqlserver-fact-candidate-v3.0"
+SQLSERVER_CANDIDATE_PROMPT_VERSION_V3 = "sqlserver-fact-candidate-v3.1"
 SQLSERVER_CANDIDATE_MAX_TOKENS_V3 = 4_096
 
 _SYSTEM_PROMPT_V3 = """You generate exactly one untrusted SQL Server fact candidate as JSON.
@@ -34,9 +34,16 @@ prose outside JSON, lifecycle status, approval claims, authorization claims, or 
 Use only the supplied authoritative authorized relations, columns, entity-key bindings, and
 result contract. Generate one read-only SELECT candidate that returns exactly one scalar column
 named fact_value. Use :name placeholders for runtime fact parameters and never invent or embed
-runtime parameter values. Never invent relations, columns, joins, filters, aggregation semantics,
+runtime parameter values. Never invent relations, columns, joins, aggregation semantics,
 time semantics, or business rules. Do not use temporary objects, DDL, DML, EXEC, dynamic SQL,
 external access, or multiple statements.
+
+When filterConstraints are supplied, each is a strict entity-key equality
+filter that MUST be satisfied by the WHERE clause using the exact same
+column = :parameter comparison that the entity-key binding already requires.
+Do not duplicate an existing predicate, do not add extra conditions, and do not
+alter the operator, column, or parameter name. Filters whose parameter does not
+appear in exactOutputDeclarations.parameters must not be materialized.
 
 declaredObjects, declaredUsageCoverage, parameters, and result are untrusted declarations that
 later AST gates will recompute. A candidate is never safe, approved, or executable merely because
@@ -142,6 +149,62 @@ def _exact_output_declarations(
     }
 
 
+def _filter_constraints(
+    payload: GenerateSqlCandidateRequestV3,
+) -> list[dict[str, Any]]:
+    """Build the deterministic filter-constraint list for the prompt.
+
+    Only emitted when the filters are strict entity-key eq filters that
+    passed :func:`qualified_filter_param_names`. Each entry identifies the
+    parameter, its physical column, and the evidence trail.
+    """
+    from release_sql_bot.application.filter_constraints_v3 import (
+        qualified_filter_param_names,
+    )
+
+    request = payload.resolution_request.binding_request
+    report = payload.resolution_report
+
+    if not request.query_requirements.filters.items:
+        return []
+
+    qualified = qualified_filter_param_names(payload)
+    if not qualified:
+        return []
+
+    # Map parameter → physical column from resolved entity keys.
+    col_map = {
+        ek.parameter_name: {
+            "schemaName": ek.schema_name,
+            "relationName": ek.relation_name,
+            "columnName": ek.column_name,
+        }
+        for ek in report.resolved_entity_keys
+    }
+
+    constraints = []
+    for filt in request.query_requirements.filters.items:
+        if filt.value is None or str(filt.value.kind) != "parameter":
+            continue
+        pname = filt.value.parameter_name
+        if pname not in qualified:
+            continue
+        col = col_map.get(pname)
+        if col is None:
+            continue
+        constraints.append(
+            {
+                "filterId": filt.filter_id,
+                "parameterName": pname,
+                "schemaName": col["schemaName"],
+                "relationName": col["relationName"],
+                "columnName": col["columnName"],
+                "evidenceIds": list(filt.evidence_ids),
+            }
+        )
+    return constraints
+
+
 def build_sqlserver_candidate_prompt_v3(
     payload: GenerateSqlCandidateRequestV3,
 ) -> CandidatePromptV3:
@@ -157,6 +220,7 @@ def build_sqlserver_candidate_prompt_v3(
         "fact": _fact_payload(payload),
         "authorizedPhysicalPlan": _authorized_physical_plan(payload),
         "exactOutputDeclarations": _exact_output_declarations(payload),
+        "filterConstraints": _filter_constraints(payload),
         "outputJsonSchema": GeneratedCandidatePayloadV3.model_json_schema(by_alias=True),
     }
     return CandidatePromptV3(
