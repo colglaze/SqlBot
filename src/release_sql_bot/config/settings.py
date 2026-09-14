@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal, Self
 
-from pydantic import AnyHttpUrl, Field, SecretStr, model_validator
+from pydantic import AnyHttpUrl, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["local", "test", "staging", "production"]
@@ -131,6 +131,39 @@ class Settings(BaseSettings):
         max_length=120,
     )
 
+    # V3 approval record read-only store (metadataReview approval source).
+    # Shares the MongoDB URI/TLS/timeout config but targets a separate
+    # collection (approval_records_v3 by default). Strictly read-only: the
+    # adapter exposes only get_by_approval_id and never writes.
+    approval_store_v3_enabled: bool = False
+    approval_store_v3_database: str = Field(
+        default="release_sql_bot",
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
+        min_length=1,
+        max_length=63,
+    )
+    approval_store_v3_collection: str = Field(
+        default="approval_records_v3",
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
+        min_length=1,
+        max_length=120,
+    )
+    approval_store_v3_active_pointer_collection: str = Field(
+        default="approval_record_active_pointers_v3",
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
+        min_length=1,
+        max_length=120,
+    )
+
+    # Exact-match allowlists copied into V3 evidence packs. Empty means trust
+    # nothing (never "allow all"). No wildcards, prefixes, or case folding.
+    evidence_trusted_providers: tuple[str, ...] = ("fixed-offline-v3",)
+    evidence_trusted_models: tuple[str, ...] = ("fixed-model-v3",)
+    evidence_trusted_prompt_versions: tuple[str, ...] = (
+        "sqlserver-fact-candidate-v3.0",
+        "sqlserver-fact-candidate-v3.1",
+    )
+
     sql_dialect: Literal["sqlserver"] = "sqlserver"
     temp_table_allowed: bool = False
 
@@ -157,14 +190,73 @@ class Settings(BaseSettings):
             raise ValueError(
                 "A MongoDB URI is required when V3 candidate template persistence is enabled."
             )
+        if self.approval_store_v3_enabled and not self._has_secret(self.mongodb_uri):
+            raise ValueError("A MongoDB URI is required when V3 approval record store is enabled.")
         if self.candidate_store_database == self.candidate_store_v3_database and (
             self.candidate_store_collection == self.candidate_store_v3_collection
         ):
             raise ValueError(
                 "V2 and V3 candidate stores must not target the same database and collection."
             )
+        if self.approval_store_v3_database == self.candidate_store_v3_database and (
+            self.approval_store_v3_collection == self.candidate_store_v3_collection
+        ):
+            raise ValueError(
+                "V3 approval record store and V3 candidate store must not target the same "
+                "database and collection."
+            )
+        if self.approval_store_v3_database == self.candidate_store_database and (
+            self.approval_store_v3_collection == self.candidate_store_collection
+        ):
+            raise ValueError(
+                "V3 approval record store and V2 candidate store must not target the same "
+                "database and collection."
+            )
+        pointer_conflicts_with_approval = (
+            self.approval_store_v3_active_pointer_collection == self.approval_store_v3_collection
+        )
+        pointer_conflicts_with_v2 = (
+            self.approval_store_v3_database == self.candidate_store_database
+            and self.approval_store_v3_active_pointer_collection == self.candidate_store_collection
+        )
+        pointer_conflicts_with_v3 = (
+            self.approval_store_v3_database == self.candidate_store_v3_database
+            and self.approval_store_v3_active_pointer_collection
+            == self.candidate_store_v3_collection
+        )
+        if (
+            pointer_conflicts_with_approval
+            or pointer_conflicts_with_v2
+            or pointer_conflicts_with_v3
+        ):
+            raise ValueError(
+                "V3 approval active pointer collection must be separate from approval record "
+                "and candidate store collections."
+            )
         self._validate_sqlserver_validation_safety()
         return self
+
+    @field_validator(
+        "evidence_trusted_providers",
+        "evidence_trusted_models",
+        "evidence_trusted_prompt_versions",
+        mode="after",
+    )
+    @classmethod
+    def normalize_trusted_identifier_lists(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            stripped = item.strip()
+            if not stripped:
+                raise ValueError("trusted identifier entries must be non-empty")
+            if len(stripped) > 200:
+                raise ValueError("trusted identifier entries must be at most 200 characters")
+            if stripped in seen:
+                raise ValueError("trusted identifier lists cannot contain duplicate values")
+            seen.add(stripped)
+            cleaned.append(stripped)
+        return tuple(cleaned)
 
     def _validate_sqlserver_validation_safety(self) -> None:
         if not self.sqlserver_validation_enabled:
@@ -291,6 +383,11 @@ class Settings(BaseSettings):
             "candidate_store_configured": self._has_secret(self.mongodb_uri),
             "candidate_store_v3_enabled": self.candidate_store_v3_enabled,
             "candidate_store_v3_configured": self._has_secret(self.mongodb_uri),
+            "approval_store_v3_enabled": self.approval_store_v3_enabled,
+            "approval_store_v3_configured": self._has_secret(self.mongodb_uri),
+            "evidence_trusted_providers_count": len(self.evidence_trusted_providers),
+            "evidence_trusted_models_count": len(self.evidence_trusted_models),
+            "evidence_trusted_prompt_versions_count": len(self.evidence_trusted_prompt_versions),
             "sql_dialect": self.sql_dialect,
             "temp_table_allowed": self.temp_table_allowed,
         }

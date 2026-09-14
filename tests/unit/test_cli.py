@@ -59,6 +59,11 @@ def test_check_config_prints_safe_summary(capsys, tmp_path, monkeypatch) -> None
         "candidate_store_configured",
         "candidate_store_v3_enabled",
         "candidate_store_v3_configured",
+        "approval_store_v3_enabled",
+        "approval_store_v3_configured",
+        "evidence_trusted_providers_count",
+        "evidence_trusted_models_count",
+        "evidence_trusted_prompt_versions_count",
         "sql_dialect",
         "temp_table_allowed",
     }
