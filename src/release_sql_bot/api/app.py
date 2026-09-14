@@ -119,6 +119,12 @@ def create_app(
         candidate_store = resources.candidate_store
         if candidate_store is not None:
             await candidate_store.initialize()
+        approval_port_v3 = resources.approval_port_v3
+        if approval_port_v3 is not None:
+            await approval_port_v3.initialize()
+        candidate_store_v3 = resources.candidate_store_v3
+        if candidate_store_v3 is not None:
+            await candidate_store_v3.initialize()
         app.state.runtime = RuntimeContainer(
             settings=resolved_settings,
             database=database,
@@ -132,13 +138,28 @@ def create_app(
             ),
             candidate_store=candidate_store,
             readiness_graph=build_readiness_graph(database),
+            approval_port_v3=approval_port_v3,
+            candidate_store_v3=candidate_store_v3,
         )
         try:
             yield
         finally:
-            if candidate_store is not None:
-                await candidate_store.close()
-            await database.close()
+            close_error: Exception | None = None
+            for resource in (
+                candidate_store_v3,
+                approval_port_v3,
+                candidate_store,
+                database,
+            ):
+                if resource is None:
+                    continue
+                try:
+                    await resource.close()
+                except Exception as exc:
+                    if close_error is None:
+                        close_error = exc
+            if close_error is not None:
+                raise close_error
 
     app = FastAPI(
         title=resolved_settings.service_name,
