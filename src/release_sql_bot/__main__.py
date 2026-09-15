@@ -38,6 +38,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print a non-sensitive configuration summary.",
     )
 
+    prepare_v3 = subparsers.add_parser(
+        "prepare-v3", help="Prepare a V3 generation input from an exact MongoDB rule request."
+    )
+    prepare_v3.add_argument("--input", required=True, help="Approved preparation package JSON.")
+    prepare_v3.add_argument("--output", required=True, help="Private resolution request JSON.")
+    prepare_v3.add_argument("--overwrite", action="store_true")
+
     validation = subparsers.add_parser(
         "validate-sqlserver",
         help="Run the Phase 5A describe-only SQL Server validation from a request file.",
@@ -73,6 +80,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         required=True,
         help="Path for the evidence pack; existing files are never overwritten silently.",
+    )
+    generate_v3.add_argument(
+        "--candidate-output",
+        help="Optional private file for the same-run candidate SQL and static report.",
     )
     generate_v3.add_argument(
         "--overwrite",
@@ -314,9 +325,110 @@ async def _maybe_call(resource: object | None, method_name: str) -> None:
     await method()
 
 
+def _preflight_output_paths(input_path: Path, outputs: list[Path], *, overwrite: bool) -> None:
+    """在访问服务前拒绝覆盖输入、路径别名和已存在的输出。"""
+    paths = [input_path, *outputs]
+    for index, path in enumerate(paths):
+        for other in paths[:index]:
+            if path.resolve() == other.resolve() or (
+                path.exists() and other.exists() and path.samefile(other)
+            ):
+                raise ValueError("OUTPUT_PATH_CONFLICT")
+    for path in outputs:
+        if path.exists() and (not overwrite or not path.is_file()):
+            raise FileExistsError(path)
+        parent = path.parent
+        while not parent.exists():
+            parent = parent.parent
+        if not parent.is_dir():
+            raise ValueError("OUTPUT_PARENT_INVALID")
+
+
+def _run_prepare_v3(args: argparse.Namespace) -> int:
+    from pydantic import ValidationError
+
+    from release_sql_bot.application.generation_preparation_v3 import prepare_generation_request_v3
+    from release_sql_bot.domain.generation_preparation_v3 import (
+        GenerationPreparationErrorV3,
+        PrepareGenerationRequestV3,
+    )
+    from release_sql_bot.domain.project_bindings_v3 import ResolveMetadataRequestV3
+    from release_sql_bot.infrastructure.database.mongodb import MongoRuleStore
+    from release_sql_bot.infrastructure.database.mongodb_approvals_v3 import (
+        MongoApprovalRecordStoreV3,
+    )
+
+    input_path, output_path = Path(args.input), Path(args.output)
+    try:
+        _preflight_output_paths(input_path, [output_path], overwrite=args.overwrite)
+        request = PrepareGenerationRequestV3.model_validate_json(
+            input_path.read_text(encoding="utf-8")
+        )
+        settings = get_settings()
+    except (OSError, ValueError, ValidationError):
+        print("PREPARE_INPUT_OR_OUTPUT_INVALID", file=sys.stderr)
+        return _EXIT_WIRE_CONFIG_ERROR
+    except Exception:  # noqa: BLE001 - configuration may include credentials
+        print("PREPARE_CONFIGURATION_INVALID", file=sys.stderr)
+        return _EXIT_WIRE_CONFIG_ERROR
+    if not settings.database_enabled or not settings.approval_store_v3_enabled:
+        print("PREPARE_REQUIRED_PORT_DISABLED", file=sys.stderr)
+        return _EXIT_WIRE_CONFIG_ERROR
+
+    async def execute() -> ResolveMetadataRequestV3:
+        # 只装配读取端口，准备步骤不初始化候选存储或索引。
+        repository = MongoRuleStore(settings)
+        approval_port = MongoApprovalRecordStoreV3(settings)
+        try:
+            await repository.initialize()
+            await approval_port.initialize()
+            return await prepare_generation_request_v3(
+                request=request, handoff_repository=repository, approval_port=approval_port
+            )
+        finally:
+            try:
+                await approval_port.close()
+            finally:
+                await repository.close()
+
+    try:
+        resolution_request = asyncio.run(execute())
+    except GenerationPreparationErrorV3 as exc:
+        print(json.dumps({"code": exc.code, "issueCodes": exc.issue_codes}), file=sys.stderr)
+        return _EXIT_BLOCKED
+    except Exception:  # noqa: BLE001 - never leak adapter messages
+        print("PREPARE_RUNTIME_UNAVAILABLE", file=sys.stderr)
+        return _EXIT_INCONCLUSIVE
+    try:
+        _write_evidence_pack_v3(
+            output_path,
+            resolution_request.model_dump_json(by_alias=True, indent=2) + "\n",
+            overwrite=args.overwrite,
+        )
+    except Exception:  # noqa: BLE001 - safe local output failure
+        print("PREPARE_OUTPUT_WRITE_FAILED", file=sys.stderr)
+        return _EXIT_WIRE_CONFIG_ERROR
+    print(
+        json.dumps(
+            {
+                "status": "prepared",
+                "requestPath": str(output_path),
+                "batchSha256": resolution_request.handoff_closure.batch_sha256,
+                "payloadSha256": resolution_request.handoff_closure.payload_sha256,
+            }
+        )
+    )
+    return _EXIT_PASSED
+
+
 def _run_generate_v3(args: argparse.Namespace) -> int:
     from pydantic import ValidationError
 
+    from release_sql_bot.application.candidate_export_v3 import (
+        CapturingCandidateStoreV3,
+        build_candidate_export_v3,
+    )
+    from release_sql_bot.application.deferred_candidate_store_v3 import DeferredCandidateStoreV3
     from release_sql_bot.application.evidence_loop_v3 import (
         TrustedIdentifiersV3,
         run_offline_v3_evidence_loop,
@@ -347,6 +459,17 @@ def _run_generate_v3(args: argparse.Namespace) -> int:
         return _EXIT_WIRE_CONFIG_ERROR
 
     input_path = Path(args.input)
+    output_path = Path(args.output)
+    candidate_path = Path(args.candidate_output) if args.candidate_output else None
+    try:
+        _preflight_output_paths(
+            input_path,
+            [output_path, *([candidate_path] if candidate_path else [])],
+            overwrite=args.overwrite,
+        )
+    except (OSError, ValueError):
+        print("Output paths conflict, already exist, or are inaccessible.", file=sys.stderr)
+        return _EXIT_WIRE_CONFIG_ERROR
     try:
         if not input_path.is_file():
             print(f"Input file does not exist: {input_path}", file=sys.stderr)
@@ -426,11 +549,10 @@ def _run_generate_v3(args: argparse.Namespace) -> int:
 
     handoff_repository = resources.fact_binding_batch_repository_v3
     approval_port = resources.approval_port_v3
-    store = resources.candidate_store_v3
-    assert handoff_repository is not None
-    assert approval_port is not None
-    assert store is not None
-    assert provider is not None
+    store = DeferredCandidateStoreV3(resources.candidate_store_v3)
+    capture_store = CapturingCandidateStoreV3(store) if candidate_path else None
+    if capture_store is not None:
+        store = capture_store
 
     trusted = TrustedIdentifiersV3(
         providers=frozenset(settings.evidence_trusted_providers),
@@ -444,7 +566,6 @@ def _run_generate_v3(args: argparse.Namespace) -> int:
         try:
             await _maybe_call(resources.initializer, "initialize")
             await _maybe_call(approval_port, "initialize")
-            await _maybe_call(store, "initialize")
             return await run_offline_v3_evidence_loop(
                 provider=provider,
                 payload=payload,
@@ -500,6 +621,29 @@ def _run_generate_v3(args: argparse.Namespace) -> int:
         )
         return _EXIT_INCONCLUSIVE
 
+    candidate_written = False
+    if candidate_path is not None and capture_store is not None:
+        try:
+            if capture_store.candidate is not None:
+                export = build_candidate_export_v3(
+                    candidate=capture_store.candidate, payload=payload, pack=cli_pack
+                )
+                _write_evidence_pack_v3(
+                    candidate_path,
+                    json.dumps(export, ensure_ascii=False, indent=2) + "\n",
+                    overwrite=args.overwrite,
+                )
+                candidate_written = True
+            elif cli_pack.candidate_content_sha256 is not None:
+                raise ValueError("CANDIDATE_EXPORT_MISSING")
+        except Exception:  # noqa: BLE001 - no SQL or private values in errors
+            print(
+                "Evidence pack saved; candidate export failed. Do not retry model generation "
+                "to recover a local export.",
+                file=sys.stderr,
+            )
+            return _EXIT_INCONCLUSIVE
+
     print(
         json.dumps(
             {
@@ -510,6 +654,7 @@ def _run_generate_v3(args: argparse.Namespace) -> int:
                 "issueCodes": dumped["issueCodes"],
                 "attemptCount": dumped["attemptCount"],
                 "reportPath": str(output_path),
+                "candidatePath": str(candidate_path) if candidate_written else None,
                 "authorizedOnlineProvider": dumped["authorizedOnlineProvider"],
                 "startedAt": dumped["startedAt"],
                 "endedAt": dumped["endedAt"],
@@ -547,3 +692,6 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     if args.command == "generate-v3":
         raise SystemExit(_run_generate_v3(args))
+
+    if args.command == "prepare-v3":
+        raise SystemExit(_run_prepare_v3(args))

@@ -22,6 +22,7 @@ from release_sql_bot.application.evidence_loop_v3 import (
     _validate_prompt_version,
     _validate_provider_identity,
 )
+from release_sql_bot.application.ports.approval_records_v3 import InMemoryApprovalRecordPortV3
 from release_sql_bot.application.ports.database import DatabaseStatus
 from release_sql_bot.application.runtime import DatabaseResources
 from release_sql_bot.config.settings import Settings, get_settings
@@ -32,6 +33,7 @@ from tests.unit.test_candidates_v3 import (
     _build_synthetic_approval_port,
     _build_synthetic_closure_wire,
     _build_synthetic_handoff_repository,
+    _EmptyHandoffRepository,
     _valid_provider,
 )
 from tests.unit.test_evidence_loop_v3 import _abs_provider
@@ -290,6 +292,150 @@ def test_existing_output_without_overwrite_is_unchanged(
     code = _run_cli(_authorized_args(input_path, output_path))
     assert code == 4
     assert output_path.read_bytes() == original
+
+
+@pytest.mark.parametrize("blocked", [False, True])
+def test_candidate_export_matches_same_run_and_keeps_review_state(
+    cli_paths: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    blocked: bool,
+) -> None:
+    from release_sql_bot.application.canonical import canonical_content_sha256, canonical_sha256
+
+    input_path, output_path = cli_paths
+    candidate_path = output_path.with_name("private-candidate.json")
+    provider, _ = _patch_assembly(
+        monkeypatch, provider=_abs_provider() if blocked else _valid_provider()
+    )
+    code = _run_cli(
+        [*_authorized_args(input_path, output_path), "--candidate-output", str(candidate_path)]
+    )
+    assert code == (2 if blocked else 0)
+    assert len(provider.calls) == 1
+    pack = json.loads(output_path.read_text(encoding="utf-8"))
+    export = json.loads(candidate_path.read_text(encoding="utf-8"))
+    candidate = export["candidate"]
+    assert canonical_content_sha256(candidate) == pack["candidateContentSha256"]
+    assert canonical_sha256(export["staticReport"]) == pack["staticReportSha256"]
+    assert canonical_sha256(pack) == export["evidencePackSha256"]
+    assert export["runId"] == pack["runId"]
+    assert candidate["executable"] is False
+    assert candidate["reviewStatus"] == "pending"
+    captured = capsys.readouterr()
+    for text in (captured.out, captured.err, output_path.read_text(encoding="utf-8")):
+        for marker in _SQL_LEAK_MARKERS:
+            assert marker not in text
+
+
+@pytest.mark.parametrize("target", ["input", "evidence", "existing", "hardlink"])
+def test_candidate_output_conflicts_block_before_provider(
+    cli_paths: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, target: str
+) -> None:
+    input_path, output_path = cli_paths
+    candidate_path = output_path.with_name("candidate.json")
+    if target == "input":
+        candidate_path = input_path
+    elif target == "evidence":
+        candidate_path = output_path
+    elif target == "hardlink":
+        os.link(input_path, candidate_path)
+    else:
+        candidate_path.write_text("keep", encoding="utf-8")
+    original = input_path.read_bytes()
+    provider, _ = _patch_assembly(monkeypatch)
+    code = _run_cli(
+        [*_authorized_args(input_path, output_path), "--candidate-output", str(candidate_path)]
+    )
+    assert code == 4
+    assert len(provider.calls) == 0
+    assert input_path.read_bytes() == original
+    assert not output_path.exists()
+
+
+def test_export_write_failure_keeps_evidence_without_model_retry(
+    cli_paths: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from release_sql_bot import __main__ as cli
+
+    input_path, output_path = cli_paths
+    candidate_path = output_path.with_name("candidate.json")
+    original_write = cli._write_evidence_pack_v3
+
+    def write(path: Path, payload: str, *, overwrite: bool) -> None:
+        if path == candidate_path:
+            raise OSError("private-error-marker")
+        original_write(path, payload, overwrite=overwrite)
+
+    monkeypatch.setattr(cli, "_write_evidence_pack_v3", write)
+    provider, _ = _patch_assembly(monkeypatch)
+    code = _run_cli(
+        [*_authorized_args(input_path, output_path), "--candidate-output", str(candidate_path)]
+    )
+    assert code == 3
+    assert len(provider.calls) == 1
+    assert output_path.exists()
+    assert not candidate_path.exists()
+
+
+def test_candidate_export_on_store_failure_has_no_static_claim(
+    cli_paths: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from release_sql_bot.application.ports.candidate_store_v3 import (
+        CandidateStoreV3Outcome,
+        CandidateStoreV3Status,
+    )
+
+    class UnavailableStore(FakeStoreV3):
+        async def save(self, candidate):
+            return CandidateStoreV3Outcome(
+                status=CandidateStoreV3Status.UNAVAILABLE,
+                content_sha256=candidate.content_sha256,
+            )
+
+    input_path, output_path = cli_paths
+    candidate_path = output_path.with_name("candidate.json")
+    provider, _ = _patch_assembly(monkeypatch, store=UnavailableStore())
+    assert (
+        _run_cli(
+            [*_authorized_args(input_path, output_path), "--candidate-output", str(candidate_path)]
+        )
+        == 2
+    )
+    assert len(provider.calls) == 1
+    pack = json.loads(output_path.read_text(encoding="utf-8"))
+    export = json.loads(candidate_path.read_text(encoding="utf-8"))
+    assert pack["storeOutcome"] == "unavailable"
+    assert export["staticReport"] is None
+
+
+@pytest.mark.parametrize("tamper", ["candidate", "static"])
+def test_candidate_export_rejects_pack_hash_mismatch(
+    cli_paths: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, tamper: str
+) -> None:
+    from release_sql_bot.application import candidate_export_v3 as exporter
+
+    original_export = exporter.build_candidate_export_v3
+
+    def corrupted_export(*, candidate, payload, pack):
+        field = "candidate_content_sha256" if tamper == "candidate" else "static_report_sha256"
+        return original_export(
+            candidate=candidate, payload=payload, pack=pack.model_copy(update={field: "0" * 64})
+        )
+
+    monkeypatch.setattr(exporter, "build_candidate_export_v3", corrupted_export)
+    input_path, output_path = cli_paths
+    candidate_path = output_path.with_name("candidate.json")
+    provider, _ = _patch_assembly(monkeypatch)
+    assert (
+        _run_cli(
+            [*_authorized_args(input_path, output_path), "--candidate-output", str(candidate_path)]
+        )
+        == 3
+    )
+    assert len(provider.calls) == 1
+    assert output_path.exists()
+    assert not candidate_path.exists()
 
 
 def test_static_blocked_writes_pack_with_stored_outcome(
@@ -658,9 +804,12 @@ def test_initialize_failure_still_closes_initialized_resources(
         initializer=initializer,
     )
     code = _run_cli(_authorized_args(input_path, output_path))
-    assert code == 3
-    assert len(provider.calls) == 0
-    assert output_path.exists() is False
+    assert code == 2
+    assert len(provider.calls) == 1
+    assert output_path.exists()
+    pack = EvidencePackV3.model_validate_json(output_path.read_text(encoding="utf-8"))
+    assert pack.stage == "candidateGenerated"
+    assert pack.store_outcome == "unavailable"
     assert initializer.initialize_calls == 1
     assert approval.initialize_calls == 1
     assert store.initialize_calls == 1
@@ -668,6 +817,64 @@ def test_initialize_failure_still_closes_initialized_resources(
     assert approval.close_calls == 1
     assert store.close_calls == 1
     _assert_no_leak(capsys, _MARKER_INIT)
+
+
+def test_store_initializes_only_after_generation_gate(
+    cli_paths: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path, output_path = cli_paths
+    store = _TrackingStore()
+    provider, _ = _patch_assembly(monkeypatch, store=store)
+    assert _run_cli(_authorized_args(input_path, output_path)) == 0
+    assert len(provider.calls) == 1
+    assert store.initialize_calls == 1
+    assert store.close_calls == 1
+
+
+@pytest.mark.parametrize("gate", ["handoff", "approval"])
+def test_rejected_generation_never_initializes_candidate_store(
+    cli_paths: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, gate: str
+) -> None:
+    input_path, output_path = cli_paths
+    store = _TrackingStore()
+    approval_port = (
+        _build_synthetic_approval_port() if gate == "handoff" else InMemoryApprovalRecordPortV3()
+    )
+    provider, _ = _patch_assembly(monkeypatch, store=store, approval_port=approval_port)
+    if gate == "handoff":
+        from dataclasses import replace
+
+        from release_sql_bot import __main__ as cli
+
+        resources = cli.build_database_resources(get_settings())
+        monkeypatch.setattr(
+            cli,
+            "build_database_resources",
+            lambda settings: replace(
+                resources, fact_binding_batch_repository_v3=_EmptyHandoffRepository()
+            ),
+        )
+    assert _run_cli(_authorized_args(input_path, output_path)) == 2
+    assert len(provider.calls) == 0
+    assert store.initialize_calls == 0
+    assert store.saved == []
+    assert store.close_calls == 1
+
+
+def test_store_initialization_failure_after_generation_is_unavailable(
+    cli_paths: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path, output_path = cli_paths
+    store = _TrackingStore(fail_init=True, marker=_MARKER_INIT)
+    provider, _ = _patch_assembly(monkeypatch, store=store)
+    assert _run_cli(_authorized_args(input_path, output_path)) == 2
+    assert len(provider.calls) == 1
+    assert store.initialize_calls == 1
+    assert store.saved == []
+    pack = EvidencePackV3.model_validate_json(output_path.read_text(encoding="utf-8"))
+    assert pack.stage == "candidateGenerated"
+    assert pack.store_outcome == "unavailable"
+    assert pack.static_status is None
 
 
 def test_close_failure_still_closes_remaining_resources(

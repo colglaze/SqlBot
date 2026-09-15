@@ -3,7 +3,7 @@
 `docs/` 是项目业务意图、技术方案、数据契约、决策和进度的事实来源。当前实现以事实级 Agent 2 基线为准。
 
 ## 阅读顺序
-1. [当前进度](progress/PROG-20260912.md)
+1. [当前进度](progress/PROG-20260915.md)
 2. [FactBindingRequest 3.0.0 下游管线对齐需求](requirements/REQ-20260906-04-v3-downstream-pipeline-alignment.md)
 3. [V3 下游管线权威边界与复用决策](decisions/BIZ-20260906-03-v3-downstream-authority-boundary.md)
 4. [FactBindingRequest 3.0.0 下游管线对齐设计与实施计划](architecture/DEV-20260906-04-v3-downstream-pipeline-alignment.md)
@@ -61,6 +61,7 @@
 
 ### 产品与决策
 
+- [REQ-20260915-01：MongoDB 精确规则输入准备与 V3 模板导出](requirements/REQ-20260915-01-v3-mongodb-generation-entry.md)
 - [REQ-20260906-04：FactBindingRequest 3.0.0 下游管线对齐](requirements/REQ-20260906-04-v3-downstream-pipeline-alignment.md)
 - [BIZ-20260906-03：V3 下游管线权威边界与复用决策](decisions/BIZ-20260906-03-v3-downstream-authority-boundary.md)
 - [REQ-20260906-03：FactBindingRequest 3.0.0 intake 升级](requirements/REQ-20260906-03-fact-binding-v3-intake.md)
@@ -94,6 +95,8 @@
 
 ### 技术与交付
 
+- [DEV-20260915-01：MongoDB V3 输入准备与候选导出](architecture/DEV-20260915-01-v3-mongodb-generation-entry.md)
+- [PROG-20260915：单表 source 私有字段映射、元数据快照与授权草案（离线，未批准）](progress/PROG-20260915.md)
 - [PROG-20260912：V3 M3/M4/M5/M6 离线切片（受限 source 单关系生成、静态门禁、存储装配、证据包编排、离线证据包演示脚本，含 M6 审核修复）](progress/PROG-20260912.md)
 - [PROG-20260911：V3 M2 内容闭包校验、usage 追溯摘要、解析请求/报告契约与审核修复](progress/PROG-20260911.md)
 - [PROG-20260910：V3 M1 最后切片（handoff 契约、批准校验测试补缺和进度收口）](progress/PROG-20260910.md)

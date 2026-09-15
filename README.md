@@ -67,22 +67,23 @@ M2 元数据解析已完成（内容闭包校验、usage 摘要、请求/报告�
 timeRange 时间字段授权解析、指定 join grant 物理授权解析、
 多关系授权连接闭包选择、entity-grain 映射、JOIN 证据闭包、JOIN 计划解析、
 公开 `resolve_metadata_v3` 编排及报告组装共 13 个子任务全部完成）；
-M3 首版受限 source 单关系生成切片已交付（`generate_sql_candidate_v3`，固定离线 provider，
-不进入 M4 AST、M5 存储、M6 编排）；
+M3 受限 source 单关系生成切片已交付（`generate_sql_candidate_v3`），并已完成批准记录及
+active pointer 只读适配器、runtime 装配与 `generate-v3` CLI 的离线验收；真实生成仍受批准材料门禁阻塞；
 M4 首版受限语法静态门禁已交付（`validate_sql_candidate_v3`，仅接受直接单表查询，
 不支持 JOIN/CTE/子查询/UNION/聚合/函数/星号/DML/临时对象/跨数据库引用）；
 M5 第一切片已完成（独立 V3 存储契约、端口、MongoDB 适配器及配置，fake 驱动离线验证通过，
 insert-only、唯一 hash、幂等、失败降级不变量全部覆盖）；
 M5 第二切片（生成后存储装配 `generate_and_store_sql_candidate_v3`）已完成并通过离线验证；
 M3/M4 已扩展支持严格实体键等值 filters（operator=eq、parameter、
-required=true、nullPolicy=error、可空列、字段/参数/解析一致），
+required=true、nullPolicy=error、实体键列明确非空、字段/参数/解析一致），
 prompt 版本 `sqlserver-fact-candidate-v3.1`；
 M6 第一刀已完成（证据包契约 `EvidencePackV3`、离线编排 `run_offline_v3_evidence_loop`，
 含审核修复：计数代理、verified-on-call、provider 允许列表、阶段一致性校验），
 并提供了完全离线的演示入口 `uv run python -m scripts.preview_evidence_v3`
 （产出被 Git 忽略的 `EvidencePackV3` JSON，详见本文"V3 离线证据包演示"小节；这不是生产 CLI/HTTP）。
-M6 尚未整体完成（真实仓储适配器装配、在线 provider 调用、CLI/HTTP 路由仍缺）。
-完整 V3 下游链未在线打通。
+M6 尚未整体完成：真实仓储适配器装配与 CLI 已完成离线验收，真实在线 provider 闭环未执行，
+HTTP 路由未提供。2026-09-15 只读核验中真实 handoff intake 通过，但当前 MongoDB 账号对批准记录
+和 active pointer 的读取返回 Unauthorized（13），无法判断记录是否存在。完整 V3 下游链未在线打通。
 禁止把 V3 转换、裁剪或降级为 V2 契约
 （见 [REQ-20260906-04](docs/requirements/REQ-20260906-04-v3-downstream-pipeline-alignment.md)
 与 [BUG-20260906-01](docs/bugs/BUG-20260906-01-v3-phase4r-downstream-contract-gap.md)）。
@@ -92,6 +93,10 @@ M6 尚未整体完成（真实仓储适配器装配、在线 provider 调用、C
 2026-09-09 的实施规划已记录：固定私有资料中实际存在的事实均已由用户确认，后续不再重复索取；
 这些事实仍须由上游形成新版本 handoff，并由 metadataReview 转换、批准为 V3 context/snapshot/
 grants，之后才能进入 Agent 2 的真实 V3 生成链。事实确认本身不授予表列访问、模型调用或执行权限。
+
+2026-09-15 已复用固定资料与本地 V3 handoff 导出，为一个单表 source 事实整理私有字段映射、快照
+及最小授权草案。详细材料留在公开仓库之外；草案未批准，物理范围、列定义及实体键精确绑定仍需补齐。
+来源核验、已复用事实与真正未决项见 [当前进度](docs/progress/PROG-20260915.md)。
 
 Phase 2G 的元数据快照只描述物理事实，只有版本化项目上下文中的精确显式 grant 才授予关系、列、
 实体键和 join 权限。解析 API 完全离线、无持久化且不装配 SQL Server 或模型调用。本地参考资料已在
@@ -165,6 +170,30 @@ stdout 仅显示 stage/storeOutcome/staticStatus/attemptCount/issueCodes/executa
 给 `/api/v1/sql-candidates/v2/validate-static`。生成结果只能作为 SQL 雏形查看：即使静态报告为
 `passed`，候选和报告仍固定 `executable=false`，不得复制到数据库客户端执行。不得把私有参考工作簿
 或其候选字段直接作为请求输入；在线模型调用还必须得到用户针对当次任务的明确授权。
+
+### 根据 MongoDB 精确规则准备并导出 V3 候选
+
+`prepare-v3` 从 MongoDB 重读指定 `ruleVersion` 的 V3 handoff，并按 `requestId` 唯一选择事实。
+输入 JSON 只含 `schemaVersion: "1.0.0"`、`ruleVersion`、`requestId`、`projectContext`、
+`metadataSnapshot`、`approvalRecord`；后三项须为已批准的完整契约对象。准备步骤核对有效批准并运行
+M2，不连接 SQL Server、不调用模型、不初始化候选存储。
+
+```powershell
+uv run release-sql-bot prepare-v3 --input C:\private-review\approved-package.json --output C:\private-review\resolve-request.json
+uv run release-sql-bot generate-v3 --input C:\private-review\resolve-request.json --output C:\private-review\evidence.json --candidate-output C:\private-review\candidate.json --authorize-online-provider
+```
+
+准备需要启用 `RSB_DATABASE_ENABLED` 和 `RSB_APPROVAL_STORE_V3_ENABLED`；生成还需启用
+`RSB_CANDIDATE_STORE_V3_ENABLED`，配置模型与证据身份的精确允许列表，并取得本次在线模型调用授权。
+允许列表只过滤证据中的 provider/model/prompt 身份，不作为在线调用前的授权门禁；不可信身份在证据中
+置为 null 并报告 issue code，所以正式运行应事先配置真实 provider 与模型的精确名称并复核 issue codes。
+MongoDB 账号需要读取规则批次、批准记录和 active pointer；生成的写权限限 SqlBot 自有候选集合。
+配置示例见 `.env.example`；数据库记录和权限由对应的治理流程登记，CLI 不自动创建批准记录。
+
+`candidate.json` 保存本次完整 SQL 候选和对应静态报告，适合放在公开仓库外的私有目录。
+`evidence.json` 继续只保存审计摘要；两者按哈希关联。文件默认不覆盖，不能与输入共用路径。
+`candidate` 始终待人工审核且不可执行；静态通过也不表示发布批准。生成阶段会再次核验规则和有效批准。
+真实环境接入情况见 [当前进度](docs/progress/PROG-20260915.md)，不能以合成回归成功替代真实生成。
 
 ## 服务边界
 
@@ -299,8 +328,8 @@ uv run pytest
 - Phase 5A 提供受限 describe-only 验证端口：加密连接、只读意图、非生产 profile、权限与快照漂移
   证明、`sp_describe_first_result_set` 结果形状检查；它仍不执行候选取数、不生成执行计划、不保存
   或批准候选；
-- 应用始终没有候选 SQL 执行/取数端口；V2 有默认关闭的可选候选存储（`RSB_CANDIDATE_STORE_ENABLED=false`），
-  V3 候选存储未实现；没有候选批准或发布能力；
+- 应用始终没有候选 SQL 执行/取数端口；V2、V3 均有默认关闭的独立候选存储开关
+  （`RSB_CANDIDATE_STORE_ENABLED=false`、`RSB_CANDIDATE_STORE_V3_ENABLED=false`）；候选持久化不是人工批准或发布；
 - SQL 只有在后续 AST、安全、受限试跑和人工审核全部通过后才可能发布。
 
 ## 文档导航
@@ -347,7 +376,7 @@ uv run pytest
 - [双 Agent 职责决策](docs/decisions/BIZ-20260819-01-agent2-role-alignment.md)
 - [事实绑定技术方案](docs/architecture/DEV-20260819-01-fact-binding-contract.md)
 - [阶段路线图](docs/ROADMAP.md)
-- [当前进度](docs/progress/PROG-20260912.md)
+- [当前进度](docs/progress/PROG-20260915.md)
 
 旧的“整规则异常集合 SQL”文档作为历史记录保留，不再指导 SQL 生成；其中规则 JSON Schema 1.0
 只被复用于确定性的规则读取校验、canonicalization、哈希和 diff。
