@@ -19,6 +19,7 @@ from sqlglot.schema import MappingSchema
 from release_sql_bot.application.ports.sql_ast_v3 import (
     OfflineRelationV3,
     SqlComparisonEvidenceV3,
+    SqlEncodingCaseEvidenceV3,
     SqlInspectionIssueV3,
     SqlInspectionRequestV3,
     SqlInspectionResultV3,
@@ -70,6 +71,7 @@ _ALLOWED_NODES_MINIMAL: frozenset[str] = frozenset(
         "Where",
     }
 )
+_CASE_SELECT_NODES: frozenset[str] = frozenset({"Case", "If", "Literal", "Null"})
 
 
 def _issue(code, msg, nid=None):
@@ -348,18 +350,80 @@ def _in_where(node):
     return False
 
 
+def _in_where_tree(node) -> bool:
+    current = node
+    while current is not None:
+        if isinstance(current, exp.Where):
+            return True
+        current = current.parent
+    return False
+
+
+def _string_literal(node) -> str | None:
+    if isinstance(node, exp.Literal) and bool(getattr(node, "is_string", False)):
+        value = node.this
+        return value if isinstance(value, str) else None
+    return None
+
+
+def _extract_encoding_cases(stmt, scope, ri, ci, sensitivity):
+    results: list[SqlEncodingCaseEvidenceV3] = []
+    for idx, sel in enumerate(stmt.selects):
+        expr = sel
+        while isinstance(expr, exp.Alias):
+            expr = expr.this
+        while isinstance(expr, exp.Paren):
+            expr = expr.this
+        if not isinstance(expr, exp.Case):
+            continue
+        this = expr.args.get("this")
+        if not isinstance(this, exp.Column):
+            continue
+        phys = _physical_col(this, scope, ri, ci, sensitivity)
+        if phys is None:
+            continue
+        arms: list[tuple[str, str]] = []
+        malformed = False
+        for ifn in expr.args.get("ifs") or []:
+            physical = _string_literal(ifn.args.get("this"))
+            logical = _string_literal(ifn.args.get("true"))
+            if physical is None or logical is None:
+                malformed = True
+                break
+            arms.append((physical, logical))
+        default = expr.args.get("default")
+        else_is_null = isinstance(default, exp.Null)
+        if malformed or not arms:
+            continue
+        results.append(
+            SqlEncodingCaseEvidenceV3(
+                expression_path=f"/sel/{idx}",
+                input_schema=phys[0],
+                input_relation=phys[1],
+                input_column=phys[2],
+                when_then=tuple(arms),
+                else_is_null=else_is_null,
+            )
+        )
+    return results
+
+
 def _find_src_col(sel, scope, ri, ci, sensitivity):
     """Resolve physical column of a SELECT expression.
 
-    Only accepts a direct column: unwrap Alias and Paren, then require
-    exactly one Column node. Any function, arithmetic, CASE, EQ, etc.
-    is rejected even if it contains an authorized column as descendant.
+    Accepts a direct column, or a simple CASE whose input is one column.
+    Other expressions are rejected even if they contain an authorized column.
     """
     expr = sel
     while isinstance(expr, exp.Alias):
         expr = expr.this
     while isinstance(expr, exp.Paren):
         expr = expr.this
+    if isinstance(expr, exp.Case):
+        this = expr.args.get("this")
+        if isinstance(this, exp.Column):
+            return _physical_col(this, scope, ri, ci, sensitivity)
+        return None
     if not isinstance(expr, exp.Column):
         return None
     return _physical_col(expr, scope, ri, ci, sensitivity)
@@ -426,11 +490,21 @@ class SqlglotTsqlInspectorV3:
         features: set[str] = set()
         nnames = {type(n).__name__ for n in nodes}
 
-        # Whitelist: reject any node type not in the minimal allowed set
+        # Whitelist: reject any node type not in the minimal allowed set.
+        # CASE/Literal/Null/If are allowed only outside WHERE (SELECT CASE).
         for nm in sorted(nnames):
-            if nm not in _ALLOWED_NODES_MINIMAL:
-                features.add(f"forbidden:{nm}")
-                issues.append(_issue("SQL_NODE_FORBIDDEN", f"首版门禁不支持 {nm} 结构。", nm))
+            if nm in _ALLOWED_NODES_MINIMAL:
+                continue
+            if nm in _CASE_SELECT_NODES:
+                node_cls = getattr(exp, nm, None)
+                if node_cls is not None and any(
+                    isinstance(n, node_cls) and _in_where_tree(n) for n in nodes
+                ):
+                    features.add(f"forbidden:{nm}")
+                    issues.append(_issue("SQL_NODE_FORBIDDEN", f"首版门禁不支持 {nm} 结构。", nm))
+                continue
+            features.add(f"forbidden:{nm}")
+            issues.append(_issue("SQL_NODE_FORBIDDEN", f"首版门禁不支持 {nm} 结构。", nm))
 
         # Structural checks for specific features
         if stmt.args.get("limit") is not None or stmt.args.get("offset") is not None:
@@ -457,9 +531,9 @@ class SqlglotTsqlInspectorV3:
             features.add("window")
             issues.append(_issue("SQL_WINDOW", "首版门禁禁止窗口函数。"))
 
-        # Functions: any Func subclass, EXCEPT And/Or/Not (logical connectors).
-        # And is a Func subclass in sqlglot, so we must exclude it explicitly.
-        _logical_funcs = {"And", "Or", "Not"}
+        # Functions: any Func subclass, EXCEPT And/Or/Not (logical connectors)
+        # and If/Case (simple SELECT CASE). And/If/Case are Func subclasses in sqlglot.
+        _logical_funcs = {"And", "Or", "Not", "If", "Case"}
         for n in nodes:
             if isinstance(n, exp.Func) and type(n).__name__ not in (
                 "Column",
@@ -480,9 +554,12 @@ class SqlglotTsqlInspectorV3:
             features.add("cast")
             issues.append(_issue("SQL_CAST", "首版门禁禁止 CAST/CONVERT。"))
 
-        if any(isinstance(n, exp.Case) for n in nodes):
+        case_nodes = [n for n in nodes if isinstance(n, exp.Case)]
+        if any(_in_where_tree(n) for n in case_nodes):
             features.add("case")
-            issues.append(_issue("SQL_CASE", "首版门禁禁止 CASE。"))
+            issues.append(_issue("SQL_CASE", "WHERE 子句禁止 CASE。"))
+        elif case_nodes:
+            features.add("encodingCase")
 
         if any(isinstance(n, (exp.Sum, exp.Count, exp.Avg, exp.Min, exp.Max)) for n in nodes):
             features.add("agg")
@@ -603,6 +680,7 @@ class SqlglotTsqlInspectorV3:
                     issues.append(_issue("SQL_PARAMETER_SYNTAX", "参数格式错误。"))
 
         rcols = []
+        encoding_cases = ()
         if rs is not None:
             try:
                 schema = _mapping_schema(request.offline_schema, sens)
@@ -629,16 +707,17 @@ class SqlglotTsqlInspectorV3:
                             src[2] if src else "",
                         )
                         rcols.append(rc)
+                    encoding_cases = tuple(_extract_encoding_cases(qs.expression, qs, ri, ci, sens))
             except SqlglotError:
                 pass
+            if not encoding_cases:
+                encoding_cases = tuple(_extract_encoding_cases(stmt, rs, ri, ci, sens))
 
         comps = (
             _extract_comparisons(where_node, alias_map, rs, ri, ci, sens)
             if where_node is not None
             else []
         )
-        # If WHERE exists but no valid comparisons were extracted,
-        # the WHERE structure is invalid (e.g., bare Column, bare Placeholder)
         if where_node is not None and not comps:
             features.add("invalid_where")
             issues.append(
@@ -655,5 +734,6 @@ class SqlglotTsqlInspectorV3:
             tuple(phs),
             tuple(comps),
             tuple(sorted(features)),
+            encoding_cases,
         )
         return SqlInspectionResultV3(summary, tuple(issues))

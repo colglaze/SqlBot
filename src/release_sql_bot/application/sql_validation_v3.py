@@ -27,6 +27,7 @@ from release_sql_bot.application.ports.sql_ast_v3 import (
 from release_sql_bot.domain.sql_validation_v3 import (
     SqlCandidateValidationRefV3,
     SqlComparisonEvidenceV3,
+    SqlEncodingCaseEvidenceV3,
     SqlInspectionSummaryV3,
     SqlParserRefV3,
     SqlPhysicalObjectEvidenceV3,
@@ -184,6 +185,17 @@ def _convert_summary(port_summary):
             for c in port_summary.comparisons
         ),
         features=port_summary.features,
+        encodingCases=tuple(
+            SqlEncodingCaseEvidenceV3(
+                expressionPath=item.expression_path,
+                inputSchema=item.input_schema,
+                inputRelation=item.input_relation,
+                inputColumn=item.input_column,
+                whenThen=item.when_then,
+                elseIsNull=item.else_is_null,
+            )
+            for item in port_summary.encoding_cases
+        ),
     )
 
 
@@ -270,10 +282,13 @@ def _ref_issues(p, r):
 
     er = binding.query_requirements.result
     res = cand.result
+    expected_cardinality = str(er.cardinality)
+    if r.resolved_result_semantics is not None:
+        expected_cardinality = str(r.resolved_result_semantics.consumer_cardinality)
     if (
         str(res.column_name) != str(er.column_name)
         or str(res.data_type) != str(er.data_type)
-        or str(res.cardinality) != str(er.cardinality)
+        or str(res.cardinality) != expected_cardinality
         or res.nullable is not er.nullable
         or str(res.null_policy) != str(er.null_policy)
         or res.unit != er.unit
@@ -402,7 +417,6 @@ def _semantic(p, r, s):
         "crossDb",
         "unknownObj",
         "agg",
-        "case",
         "arith",
     }
     for f in s.features:
@@ -437,6 +451,8 @@ def _semantic(p, r, s):
 
     issues.extend(_check_keys(s, r))
     issues.extend(_check_filters(p, r, s))
+    issues.extend(_check_encoding(p, r, s))
+    issues.extend(_check_result_cardinality(p, s))
     return issues
 
 
@@ -556,4 +572,55 @@ def _check_filters(p, r, s):
                     _GATE_WHERE,
                 )
             )
+    return issues
+
+
+def _encoding_for_request(report):
+    encodings = list(getattr(report, "resolved_value_encodings", ()) or ())
+    if len(encodings) > 1:
+        return None, [_issue("SQL_ENCODING_DUPLICATE", "编码绑定不唯一。", _GATE_RESULT)]
+    if not encodings:
+        return None, []
+    return encodings[0], []
+
+
+def _check_encoding(p, r, s):
+    encoding, issues = _encoding_for_request(r)
+    issues = list(issues)
+    cases = list(s.encoding_cases)
+    if encoding is None:
+        if cases or "encodingCase" in s.features:
+            issues.append(_issue("SQL_CASE", "未授权的 CASE 投影。", _GATE_RESULT))
+        return issues
+    if str(encoding.projection_kind) == "identity":
+        if cases or "encodingCase" in s.features:
+            issues.append(_issue("SQL_CASE", "identity 编码不得使用 CASE。", _GATE_RESULT))
+        return issues
+    if len(cases) != 1:
+        issues.append(
+            _issue("SQL_ENCODING_CASE", "mappedCase 必须恰好一个 CASE 投影。", _GATE_RESULT)
+        )
+        return issues
+    case = cases[0]
+    expected_col = (encoding.schema_name, encoding.relation_name, encoding.column_name)
+    actual_col = (case.input_schema, case.input_relation, case.input_column)
+    if actual_col != expected_col:
+        issues.append(_issue("SQL_ENCODING_SRC", "CASE 输入列与授权编码列不一致。", _GATE_RESULT))
+    expected_arms = {(item.physical_value, item.logical_value) for item in encoding.entries}
+    actual_arms = set(case.when_then)
+    if actual_arms != expected_arms:
+        issues.append(_issue("SQL_ENCODING_ARMS", "CASE 臂与批准编码绑定不一致。", _GATE_RESULT))
+    if not case.else_is_null:
+        issues.append(_issue("SQL_ENCODING_ELSE", "未知物理码必须投影为 NULL。", _GATE_RESULT))
+    return issues
+
+
+def _check_result_cardinality(p, s):
+    issues = []
+    semantics = getattr(p.generation_request.resolution_report, "resolved_result_semantics", None)
+    clip = {"limit", "top", "distinct", "group", "offset"}
+    if clip.intersection(s.features):
+        issues.append(_issue("SQL_ROW_CLIP", "禁止用 TOP/DISTINCT/分组裁剪结果行。", _GATE_RESULT))
+    if semantics is not None and str(p.candidate.result.cardinality) != "rowset":
+        issues.append(_issue("SQL_CARDINALITY", "结果语义绑定要求 rowset 契约。", _GATE_RESULT))
     return issues

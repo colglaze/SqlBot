@@ -79,6 +79,11 @@ from release_sql_bot.application.validate_approval_closure_v3 import (
 from release_sql_bot.application.validate_handoff_closure_v3 import (
     validate_handoff_closure_v3,
 )
+from release_sql_bot.application.value_semantics_v3 import (
+    MetadataValueSemanticsErrorV3,
+    resolve_result_semantics_v3,
+    resolve_value_encodings_v3,
+)
 from release_sql_bot.domain.handoff_closure_v3 import (
     HandoffClosureValidationErrorV3,
 )
@@ -1525,6 +1530,34 @@ _ISSUE_MAPPING: dict[str, tuple[str, str]] = {
         "metadataReview",
         "V3 join authorization evidence references a request not in context.",
     ),
+    "VALUE_ENCODING_REQUIRED": (
+        "metadataReview",
+        "V3 fact allowedValues require an approved value encoding binding.",
+    ),
+    "VALUE_ENCODING_FIELD_MISMATCH": (
+        "metadataReview",
+        "V3 value encoding binding does not match the authorized factValue field.",
+    ),
+    "VALUE_ENCODING_COLUMN_MISMATCH": (
+        "metadataReview",
+        "V3 value encoding binding does not match the authorized factValue column.",
+    ),
+    "VALUE_ENCODING_VALUES_INVALID": (
+        "metadataReview",
+        "V3 value encoding entries are not a valid mapping onto allowedValues.",
+    ),
+    "VALUE_ENCODING_DUPLICATE": (
+        "metadataReview",
+        "V3 value encoding bindings are duplicated for the current request.",
+    ),
+    "RESULT_SEMANTICS_DUPLICATE": (
+        "metadataReview",
+        "V3 result semantics bindings are duplicated for the current request.",
+    ),
+    "RESULT_SEMANTICS_REQUEST_MISMATCH": (
+        "metadataReview",
+        "V3 result semantics binding does not match the current request.",
+    ),
 }
 
 
@@ -1579,6 +1612,8 @@ def _build_blocked_report(
             "resolvedAggregation": None,
             "resolvedTimeRange": None,
             "resolvedJoins": [],
+            "resolvedValueEncodings": [],
+            "resolvedResultSemantics": None,
             "usageTraceabilitySha256": compute_usage_traceability_sha256_v3(
                 verified.binding_request.usages
             ),
@@ -1631,6 +1666,9 @@ def resolve_metadata_v3(
         resolved_time_range = _resolve_time_range_v3(verified)
         _resolve_entity_grain_mapping_v3(verified)
         resolved_joins = _resolve_joins_v3(verified)
+        field_by_id = {item.field_id: item for item in resolved_fields}
+        resolved_value_encodings = resolve_value_encodings_v3(verified, field_by_id)
+        resolved_result_semantics = resolve_result_semantics_v3(verified)
     except (
         MetadataResolutionInputErrorV3,
         MetadataColumnResolutionErrorV3,
@@ -1641,6 +1679,7 @@ def resolve_metadata_v3(
         MetadataJoinClosureErrorV3,
         MetadataJoinEvidenceErrorV3,
         MetadataJoinPlanErrorV3,
+        MetadataValueSemanticsErrorV3,
     ) as exc:
         code = exc.code
         if code not in _ISSUE_MAPPING:
@@ -1698,6 +1737,14 @@ def resolve_metadata_v3(
                 else None
             ),
             "resolvedJoins": [rj.model_dump(by_alias=True, mode="json") for rj in resolved_joins],
+            "resolvedValueEncodings": [
+                item.model_dump(by_alias=True, mode="json") for item in resolved_value_encodings
+            ],
+            "resolvedResultSemantics": (
+                resolved_result_semantics.model_dump(by_alias=True, mode="json")
+                if resolved_result_semantics is not None
+                else None
+            ),
             "usageTraceabilitySha256": compute_usage_traceability_sha256_v3(
                 verified.binding_request.usages
             ),

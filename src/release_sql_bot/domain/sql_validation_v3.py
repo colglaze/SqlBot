@@ -97,6 +97,15 @@ class SqlResultColumnEvidenceV3(_V3Base):
     source_column: str
 
 
+class SqlEncodingCaseEvidenceV3(_V3Base):
+    expression_path: str
+    input_schema: str
+    input_relation: str
+    input_column: str
+    when_then: tuple[tuple[str, str], ...] = ()
+    else_is_null: bool = False
+
+
 class SqlComparisonEvidenceV3(_V3Base):
     """A single comparison in the WHERE clause."""
 
@@ -134,6 +143,7 @@ class SqlInspectionSummaryV3(_V3Base):
     placeholders: tuple[SqlPlaceholderEvidenceV3, ...] = ()
     comparisons: tuple[SqlComparisonEvidenceV3, ...] = ()
     features: tuple[str, ...] = ()
+    encoding_cases: tuple[SqlEncodingCaseEvidenceV3, ...] = ()
 
 
 class SqlCandidateValidationRefV3(_V3Base):

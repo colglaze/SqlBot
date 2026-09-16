@@ -111,7 +111,7 @@ class GeneratedCandidateParameterV3(_V3Base):
 class GeneratedCandidateResultV3(_V3Base):
     column_name: Literal["fact_value"]
     data_type: FactDataTypeWire
-    cardinality: Literal["scalar"]
+    cardinality: Literal["scalar", "rowset"]
     nullable: bool
     null_policy: NullPolicyWire
     unit: str | None = Field(default=None, max_length=80)
@@ -240,7 +240,7 @@ class CandidateParameterV3(V3ReportModel):
 class CandidateResultV3(V3ReportModel):
     column_name: Literal["fact_value"] = "fact_value"
     data_type: FactDataTypeWire
-    cardinality: Literal["scalar"] = "scalar"
+    cardinality: Literal["scalar", "rowset"] = "scalar"
     nullable: bool
     null_policy: NullPolicyV3
     unit: str | None = None
@@ -264,9 +264,11 @@ class CandidateProvenanceV3(V3ReportModel):
     provider: str = Field(min_length=1, max_length=120)
     model: str = Field(min_length=1, max_length=160)
     response_model: str = Field(min_length=1, max_length=160)
-    prompt_version: Literal["sqlserver-fact-candidate-v3.0", "sqlserver-fact-candidate-v3.1"] = (
-        "sqlserver-fact-candidate-v3.1"
-    )
+    prompt_version: Literal[
+        "sqlserver-fact-candidate-v3.0",
+        "sqlserver-fact-candidate-v3.1",
+        "sqlserver-fact-candidate-v3.2",
+    ] = "sqlserver-fact-candidate-v3.1"
     provider_request_id: str = Field(min_length=1, max_length=240)
     system_fingerprint: str | None = Field(default=None, max_length=240)
     attempt_count: int = Field(ge=1, le=6)
@@ -286,7 +288,7 @@ class SqlTemplateCandidateV3(V3ReportModel):
     no joins, single authorized relation.
     """
 
-    schema_version: Literal["3.0.0"] = "3.0.0"
+    schema_version: Literal["3.0.0", "3.1.0"] = "3.0.0"
     template_code: str = Field(pattern=r"^[A-Z][A-Z0-9_]*$", max_length=160)
     status: Literal["candidate"] = "candidate"
     executable: Literal[False] = False
@@ -331,4 +333,8 @@ class SqlTemplateCandidateV3(V3ReportModel):
         ]
         if len(usage_keys) != len(set(usage_keys)):
             raise ValueError("declaredUsageCoverage cannot contain duplicate six-tuples")
+        if self.schema_version == "3.0.0" and self.result.cardinality != "scalar":
+            raise ValueError("schemaVersion 3.0.0 candidates cannot declare rowset cardinality")
+        if self.schema_version == "3.1.0" and self.result.cardinality != "rowset":
+            raise ValueError("schemaVersion 3.1.0 candidates require rowset cardinality")
         return self

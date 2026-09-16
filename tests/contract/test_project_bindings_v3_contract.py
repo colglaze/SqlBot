@@ -224,6 +224,62 @@ def test_context_valid_payload_round_trip() -> None:
     assert context.model_dump(by_alias=True, mode="json") == payload
     assert context.schema_version == "1.1.0"
     assert context.rule_ref.schema_version == "3.0.0"
+    assert "valueEncodingBindings" not in context.model_dump(by_alias=True, mode="json")
+
+
+def test_context_v12_encoding_round_trip() -> None:
+    payload = _context_payload()
+    payload["schemaVersion"] = "1.2.0"
+    payload["valueEncodingBindings"] = [
+        {
+            "bindingId": "enc-1",
+            "requestId": payload["requestIds"][0],
+            "fieldId": "factValue",
+            "columnGrantId": "colgrant-1",
+            "projectionKind": "mappedCase",
+            "comparisonKind": "exactString",
+            "nullInput": "preserve",
+            "unknownPhysical": "null",
+            "entries": [
+                {"physicalValue": "P0", "logicalValue": "yes"},
+                {"physicalValue": "P1", "logicalValue": "no"},
+            ],
+            "sourceKind": "viewPhysicalBaseline",
+            "sourceSha256": _VALID_SHA,
+        }
+    ]
+    payload["resultSemanticsBindings"] = [
+        {
+            "bindingId": "rs-1",
+            "requestId": payload["requestIds"][0],
+            "emptyMatch": "emptyResultSet",
+            "extraRows": "returnAll",
+            "matchedNull": "preserve",
+            "consumerCardinality": "rowset",
+            "grainConflictPolicy": "surfaceAllRows",
+        }
+    ]
+    context = ProjectBindingContextV3.model_validate(payload)
+    assert context.model_dump(by_alias=True, mode="json") == payload
+    assert context.schema_version == "1.2.0"
+
+
+def test_context_v11_rejects_encoding_bindings() -> None:
+    payload = _context_payload()
+    payload["valueEncodingBindings"] = [
+        {
+            "bindingId": "enc-1",
+            "requestId": payload["requestIds"][0],
+            "fieldId": "factValue",
+            "columnGrantId": "colgrant-1",
+            "projectionKind": "identity",
+            "entries": [{"physicalValue": "yes", "logicalValue": "yes"}],
+            "sourceKind": "identityDeclared",
+            "sourceSha256": _VALID_SHA,
+        }
+    ]
+    with pytest.raises(ValidationError):
+        ProjectBindingContextV3.model_validate(payload)
 
 
 def test_snapshot_valid_payload_round_trip() -> None:
@@ -1631,7 +1687,7 @@ def test_context_1_1_0_rejects_missing_entity_grain_authorizations() -> None:
 
 
 def test_schema_version_fixed_to_1_1_0() -> None:
-    """ProjectBindingContextV3 only accepts schemaVersion=1.1.0."""
+    """ProjectBindingContextV3 rejects unknown schemaVersion values."""
     snapshot = _make_snapshot()
     wire = _build_context_wire(snapshot_sha256=snapshot.content_sha256)
 

@@ -494,6 +494,8 @@ def test_single_relation_success_full_wire() -> None:
         "resolvedAggregation": expected_aggregation,
         "resolvedTimeRange": expected_time_range,
         "resolvedJoins": [],
+        "resolvedValueEncodings": [],
+        "resolvedResultSemantics": None,
         "usageTraceabilitySha256": compute_usage_traceability_sha256_v3(
             request.binding_request.usages
         ),
@@ -659,6 +661,13 @@ def test_error_mapping_exact_set() -> None:
         "JOIN_EVIDENCE_PAYLOAD_HASH_MISMATCH",
         "JOIN_GRANT_EVIDENCE_INVALID",
         "JOIN_REQUEST_NOT_IN_CONTEXT",
+        "VALUE_ENCODING_REQUIRED",
+        "VALUE_ENCODING_FIELD_MISMATCH",
+        "VALUE_ENCODING_COLUMN_MISMATCH",
+        "VALUE_ENCODING_VALUES_INVALID",
+        "VALUE_ENCODING_DUPLICATE",
+        "RESULT_SEMANTICS_DUPLICATE",
+        "RESULT_SEMANTICS_REQUEST_MISMATCH",
     }
 
     assert set(_ISSUE_MAPPING.keys()) == expected_codes

@@ -68,22 +68,36 @@ timeRange 时间字段授权解析、指定 join grant 物理授权解析、
 多关系授权连接闭包选择、entity-grain 映射、JOIN 证据闭包、JOIN 计划解析、
 公开 `resolve_metadata_v3` 编排及报告组装共 13 个子任务全部完成）；
 M3 受限 source 单关系生成切片已交付（`generate_sql_candidate_v3`），并已完成批准记录及
-active pointer 只读适配器、runtime 装配与 `generate-v3` CLI 的离线验收；真实生成仍受批准材料门禁阻塞；
-M4 首版受限语法静态门禁已交付（`validate_sql_candidate_v3`，仅接受直接单表查询，
-不支持 JOIN/CTE/子查询/UNION/聚合/函数/星号/DML/临时对象/跨数据库引用）；
+active pointer 只读适配器、runtime 装配与 `generate-v3` CLI 的离线验收；首份真实候选已在本地测试批准范围内生成；
+M4 首版受限语法静态门禁已交付（`validate_sql_candidate_v3`，仅接受直接单表查询；
+JOIN/CTE/子查询/UNION/聚合/星号/DML/临时对象/跨数据库引用仍禁止。SELECT 列表中的受治
+`mappedCase` 允许简单 CASE，WHERE 中仍禁止 CASE；`ISNULL`/`COALESCE`/`CAST` 仍禁止）；
 M5 第一切片已完成（独立 V3 存储契约、端口、MongoDB 适配器及配置，fake 驱动离线验证通过，
 insert-only、唯一 hash、幂等、失败降级不变量全部覆盖）；
 M5 第二切片（生成后存储装配 `generate_and_store_sql_candidate_v3`）已完成并通过离线验证；
 M3/M4 已扩展支持严格实体键等值 filters（operator=eq、parameter、
 required=true、nullPolicy=error、实体键列明确非空、字段/参数/解析一致），
-prompt 版本 `sqlserver-fact-candidate-v3.1`；
+无编码绑定时 prompt 版本 `sqlserver-fact-candidate-v3.1`；存在批准的值编码或行集绑定时使用
+`sqlserver-fact-candidate-v3.2`，新候选 `schemaVersion=3.1.0` 且 `cardinality=rowset`。
 M6 第一刀已完成（证据包契约 `EvidencePackV3`、离线编排 `run_offline_v3_evidence_loop`，
 含审核修复：计数代理、verified-on-call、provider 允许列表、阶段一致性校验），
 并提供了完全离线的演示入口 `uv run python -m scripts.preview_evidence_v3`
 （产出被 Git 忽略的 `EvidencePackV3` JSON，详见本文"V3 离线证据包演示"小节；这不是生产 CLI/HTTP）。
-M6 尚未整体完成：真实仓储适配器装配与 CLI 已完成离线验收，真实在线 provider 闭环未执行，
-HTTP 路由未提供。2026-09-15 只读核验中真实 handoff intake 通过，但当前 MongoDB 账号对批准记录
-和 active pointer 的读取返回 Unauthorized（13），无法判断记录是否存在。完整 V3 下游链未在线打通。
+M6 尚未整体完成：真实仓储适配器装配与 CLI 已完成离线验收，HTTP 路由未提供。
+2026-09-15 晚间已在本地测试环境完成批准登记、输入准备和首份在线 provider 候选生成，
+证据为 `evidenceComplete / stored / passed`。当天早先的批准读取权限阻塞属于历史观察。
+2026-09-16 用户审核该 SQL 文本通过；独立审核说明不改变原候选的 `pending / executable=false`。
+原候选仍为取值查询（`schemaVersion=3.0.0` / `cardinality=scalar`），内容哈希
+`27b12dcdd5e12069011a6cf0ac38c9e8a66a3fb8f972fabd3b41aea9416afae1` 保持不可变。
+同日已落地受治理编码映射与行集结果语义：context `1.2.0`、M2 缺绑定阻断、M3 prompt v3.2、
+M4 校验 CASE 臂与 ELSE NULL。离线合成测试已覆盖正例、负例和规则版本 A/B。测试环境随后按拟议
+映射签发新批准并完成真实 `generate-v3`：新候选 `3.1.0` / `rowset`，内容哈希
+`d804a60da09c2d393c57e3abe2c6f5b1b7029eaa744e05c8de521aaed62bb186`，静态 `passed`；
+旧 1.1.0 批准与旧候选未改写。新 SQL 待人工审核，详见
+[REQ-20260916-01](docs/requirements/REQ-20260916-01-value-encoding-result-semantics.md)
+与 [当前进度](docs/progress/PROG-20260916.md)。
+该候选仅读取一个原始标志；来源核对发现值域与参考视图比较条件存在差异，
+不能将其视为完整报告释放查询，见 [语义差异记录](docs/bugs/BUG-20260916-01-first-template-view-semantic-gap.md)。
 禁止把 V3 转换、裁剪或降级为 V2 契约
 （见 [REQ-20260906-04](docs/requirements/REQ-20260906-04-v3-downstream-pipeline-alignment.md)
 与 [BUG-20260906-01](docs/bugs/BUG-20260906-01-v3-phase4r-downstream-contract-gap.md)）。
@@ -94,9 +108,10 @@ HTTP 路由未提供。2026-09-15 只读核验中真实 handoff intake 通过，
 这些事实仍须由上游形成新版本 handoff，并由 metadataReview 转换、批准为 V3 context/snapshot/
 grants，之后才能进入 Agent 2 的真实 V3 生成链。事实确认本身不授予表列访问、模型调用或执行权限。
 
-2026-09-15 已复用固定资料与本地 V3 handoff 导出，为一个单表 source 事实整理私有字段映射、快照
-及最小授权草案。详细材料留在公开仓库之外；草案未批准，物理范围、列定义及实体键精确绑定仍需补齐。
-来源核验、已复用事实与真正未决项见 [当前进度](docs/progress/PROG-20260915.md)。
+2026-09-15 已复用固定资料，为一个单表 source 事实整理映射并完成本地测试批准与生成。
+测试快照只覆盖所选事实需要的两列，不是生产目录完整证明。2026-09-16 交付该模板的独立审核记录，
+SQL 与详细材料存放在公开仓库之外。当前范围及遗留契约差异见
+[当前进度](docs/progress/PROG-20260916.md)。
 
 Phase 2G 的元数据快照只描述物理事实，只有版本化项目上下文中的精确显式 grant 才授予关系、列、
 实体键和 join 权限。解析 API 完全离线、无持久化且不装配 SQL Server 或模型调用。本地参考资料已在
@@ -193,7 +208,7 @@ MongoDB 账号需要读取规则批次、批准记录和 active pointer；生成
 `candidate.json` 保存本次完整 SQL 候选和对应静态报告，适合放在公开仓库外的私有目录。
 `evidence.json` 继续只保存审计摘要；两者按哈希关联。文件默认不覆盖，不能与输入共用路径。
 `candidate` 始终待人工审核且不可执行；静态通过也不表示发布批准。生成阶段会再次核验规则和有效批准。
-真实环境接入情况见 [当前进度](docs/progress/PROG-20260915.md)，不能以合成回归成功替代真实生成。
+真实环境接入情况见 [当前进度](docs/progress/PROG-20260916.md)，不能以合成回归成功替代真实生成。
 
 ## 服务边界
 
@@ -376,7 +391,7 @@ uv run pytest
 - [双 Agent 职责决策](docs/decisions/BIZ-20260819-01-agent2-role-alignment.md)
 - [事实绑定技术方案](docs/architecture/DEV-20260819-01-fact-binding-contract.md)
 - [阶段路线图](docs/ROADMAP.md)
-- [当前进度](docs/progress/PROG-20260915.md)
+- [当前进度](docs/progress/PROG-20260916.md)
 
 旧的“整规则异常集合 SQL”文档作为历史记录保留，不再指导 SQL 生成；其中规则 JSON Schema 1.0
 只被复用于确定性的规则读取校验、canonicalization、哈希和 diff。

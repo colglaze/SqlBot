@@ -65,6 +65,16 @@ class SqlResultColumnEvidenceV3:
 
 
 @dataclass(frozen=True)
+class SqlEncodingCaseEvidenceV3:
+    expression_path: str
+    input_schema: str
+    input_relation: str
+    input_column: str
+    when_then: tuple[tuple[str, str], ...]
+    else_is_null: bool
+
+
+@dataclass(frozen=True)
 class SqlComparisonEvidenceV3:
     """A single comparison in the WHERE clause."""
 
@@ -95,6 +105,7 @@ class SqlInspectionSummaryV3:
     placeholders: tuple[SqlPlaceholderEvidenceV3, ...]
     comparisons: tuple[SqlComparisonEvidenceV3, ...]
     features: tuple[str, ...]
+    encoding_cases: tuple[SqlEncodingCaseEvidenceV3, ...] = ()
 
 
 @dataclass(frozen=True)

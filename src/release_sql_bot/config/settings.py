@@ -162,6 +162,7 @@ class Settings(BaseSettings):
     evidence_trusted_prompt_versions: tuple[str, ...] = (
         "sqlserver-fact-candidate-v3.0",
         "sqlserver-fact-candidate-v3.1",
+        "sqlserver-fact-candidate-v3.2",
     )
 
     sql_dialect: Literal["sqlserver"] = "sqlserver"

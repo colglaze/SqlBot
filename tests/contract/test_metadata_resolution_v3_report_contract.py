@@ -19,6 +19,8 @@ from tests.v3_metadata_support import (
     valid_metadata_resolved_report_v3_wire,
 )
 
+_SYNTH_REQUEST_ID = "SYNTH_RULE_SET@20260906T000000000000Z-a1b2c3d4e5f6#report.synthetic_amount"
+
 # ===================================================================
 # Section 1: Valid payload round-trip
 # ===================================================================
@@ -417,6 +419,27 @@ def _valid_resolved_join() -> dict[str, object]:
         ("resolvedEntityKeys", [_valid_resolved_entity_key()]),
         ("resolvedFilters", [_valid_resolved_filter()]),
         ("resolvedJoins", [_valid_resolved_join()]),
+        (
+            "resolvedValueEncodings",
+            [
+                {
+                    "bindingId": "enc-1",
+                    "requestId": _SYNTH_REQUEST_ID,
+                    "fieldId": "factValue",
+                    "columnGrantId": "colgrant-value",
+                    "schemaName": "dbo",
+                    "relationName": "synthetic_table",
+                    "columnName": "synthetic_value",
+                    "projectionKind": "identity",
+                    "comparisonKind": "exactString",
+                    "nullInput": "preserve",
+                    "unknownPhysical": "null",
+                    "entries": [{"physicalValue": "yes", "logicalValue": "yes"}],
+                    "sourceKind": "identityDeclared",
+                    "sourceSha256": "a" * 64,
+                }
+            ],
+        ),
     ],
 )
 def test_blocked_rejects_each_list_field(field_name: str, inject: list) -> None:
@@ -471,6 +494,23 @@ def test_blocked_rejects_resolved_time_range_none() -> None:
     """
     wire = valid_blocked_report_v3_wire()
     wire["resolvedTimeRange"] = _valid_time_range_none()
+    original = deepcopy(wire)
+    with pytest.raises(ValidationError, match="blocked report"):
+        BindingResolutionReportV3.model_validate(wire)
+    assert wire == original, "input wire must not be mutated on failure"
+
+
+def test_blocked_rejects_resolved_result_semantics() -> None:
+    wire = valid_blocked_report_v3_wire()
+    wire["resolvedResultSemantics"] = {
+        "bindingId": "rs-1",
+        "requestId": _SYNTH_REQUEST_ID,
+        "emptyMatch": "emptyResultSet",
+        "extraRows": "returnAll",
+        "matchedNull": "preserve",
+        "consumerCardinality": "rowset",
+        "grainConflictPolicy": "surfaceAllRows",
+    }
     original = deepcopy(wire)
     with pytest.raises(ValidationError, match="blocked report"):
         BindingResolutionReportV3.model_validate(wire)

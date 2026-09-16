@@ -16,7 +16,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_serializer, model_validator
 from pydantic.alias_generators import to_camel
 
 from release_sql_bot.domain.fact_bindings_v3 import (
@@ -301,8 +301,70 @@ class JoinAuthorizationEvidenceV3(_V3Base):
     evidence_ids: list[str] = Field(min_length=1)
 
 
+class ValueEncodingEntryV3(_V3Base):
+    """One explicit physical-to-logical encoding pair."""
+
+    physical_value: str = Field(min_length=1, max_length=80)
+    logical_value: str = Field(min_length=1, max_length=80)
+
+
+class ValueEncodingBindingV3(_V3Base):
+    """Approved logical/physical encoding for one request field.
+
+    ``mappedCase`` requires a simple CASE projection. ``identity`` means the
+    stored codes already equal ``allowedValues`` and a direct column
+    projection is authorized. Unknown physical codes must not default to a
+    logical negative value.
+    """
+
+    binding_id: str = Field(pattern=_STABLE_ID_PATTERN, max_length=200)
+    request_id: str = Field(min_length=3, max_length=420)
+    field_id: Literal["factValue"] = "factValue"
+    column_grant_id: str = Field(pattern=_STABLE_ID_PATTERN, max_length=200)
+    projection_kind: Literal["identity", "mappedCase"]
+    comparison_kind: Literal["exactString"] = "exactString"
+    null_input: Literal["preserve"] = "preserve"
+    unknown_physical: Literal["null"] = "null"
+    entries: list[ValueEncodingEntryV3] = Field(min_length=1)
+    source_kind: Literal["viewPhysicalBaseline", "identityDeclared"]
+    source_sha256: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def reject_duplicate_physical_values(self) -> ValueEncodingBindingV3:
+        physical = [item.physical_value for item in self.entries]
+        if len(physical) != len(set(physical)):
+            raise ValueError("value encoding entries must have unique physicalValue")
+        if self.projection_kind == "identity":
+            mismatched = [
+                item for item in self.entries if item.physical_value != item.logical_value
+            ]
+            if mismatched:
+                raise ValueError("identity encoding requires physicalValue=logicalValue")
+            if self.source_kind != "identityDeclared":
+                raise ValueError("identity encoding requires sourceKind=identityDeclared")
+        elif self.source_kind != "viewPhysicalBaseline":
+            raise ValueError("mappedCase encoding requires sourceKind=viewPhysicalBaseline")
+        return self
+
+
+class ResultSemanticsBindingV3(_V3Base):
+    """Approved consumer result-cardinality overlay for one request.
+
+    Does not rewrite the frozen upstream FactBindingRequest 3.0.0 scalar
+    field. New candidates record consumerCardinality independently.
+    """
+
+    binding_id: str = Field(pattern=_STABLE_ID_PATTERN, max_length=200)
+    request_id: str = Field(min_length=3, max_length=420)
+    empty_match: Literal["emptyResultSet"] = "emptyResultSet"
+    extra_rows: Literal["returnAll"] = "returnAll"
+    matched_null: Literal["preserve"] = "preserve"
+    consumer_cardinality: Literal["rowset"] = "rowset"
+    grain_conflict_policy: Literal["surfaceAllRows"] = "surfaceAllRows"
+
+
 class ProjectBindingContextV3(_V3Base):
-    schema_version: Literal["1.1.0"]
+    schema_version: Literal["1.1.0", "1.2.0"]
     context_id: str = Field(pattern=_STABLE_ID_PATTERN, max_length=200)
     context_version: int = Field(ge=1)
     status: ContextStatusWire
@@ -318,8 +380,18 @@ class ProjectBindingContextV3(_V3Base):
     join_grants: list[JoinGrantV3]
     entity_grain_authorizations: list[EntityGrainAuthorizationV3] = Field(min_length=1)
     join_authorization_evidence: list[JoinAuthorizationEvidenceV3]
+    value_encoding_bindings: list[ValueEncodingBindingV3] = Field(default_factory=list)
+    result_semantics_bindings: list[ResultSemanticsBindingV3] = Field(default_factory=list)
     approval_ref: ApprovalRefV3
     content_sha256: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_serializer(mode="wrap")
+    def omit_v12_fields_for_v11(self, handler: Any) -> dict[str, Any]:
+        data = handler(self)
+        if self.schema_version == "1.1.0":
+            data.pop("valueEncodingBindings", None)
+            data.pop("resultSemanticsBindings", None)
+        return data
 
     @model_validator(mode="after")
     def reject_duplicate_stable_ids(self) -> ProjectBindingContextV3:
@@ -336,6 +408,14 @@ class ProjectBindingContextV3(_V3Base):
                 [item.authorization_id for item in self.entity_key_authorizations],
             ),
             ("joinGrants.grantId", [item.grant_id for item in self.join_grants]),
+            (
+                "valueEncodingBindings.bindingId",
+                [item.binding_id for item in self.value_encoding_bindings],
+            ),
+            (
+                "resultSemanticsBindings.bindingId",
+                [item.binding_id for item in self.result_semantics_bindings],
+            ),
         ):
             _reject_duplicate_ids(field_name, values)
         # Composite-key uniqueness for authorization identities
@@ -364,6 +444,25 @@ class ProjectBindingContextV3(_V3Base):
         ]
         if len(je_keys) != len(set(je_keys)):
             raise ValueError("joinAuthorizationEvidence must have unique (requestId, joinGrantId)")
+        if self.schema_version == "1.1.0" and (
+            self.value_encoding_bindings or self.result_semantics_bindings
+        ):
+            raise ValueError(
+                "schemaVersion 1.1.0 cannot carry encoding or result-semantics bindings"
+            )
+        encoding_keys = [(item.request_id, item.field_id) for item in self.value_encoding_bindings]
+        if len(encoding_keys) != len(set(encoding_keys)):
+            raise ValueError("valueEncodingBindings must have unique (requestId, fieldId)")
+        semantics_keys = [item.request_id for item in self.result_semantics_bindings]
+        if len(semantics_keys) != len(set(semantics_keys)):
+            raise ValueError("resultSemanticsBindings must have unique requestId")
+        known_requests = set(self.request_ids)
+        for item in self.value_encoding_bindings:
+            if item.request_id not in known_requests:
+                raise ValueError("valueEncodingBindings.requestId must be in requestIds")
+        for item in self.result_semantics_bindings:
+            if item.request_id not in known_requests:
+                raise ValueError("resultSemanticsBindings.requestId must be in requestIds")
         return self
 
 
@@ -555,6 +654,33 @@ class ResolvedJoinV3(_V3Base):
     evidence_ids: list[str] = Field(min_length=1)
 
 
+class ResolvedValueEncodingV3(_V3Base):
+    binding_id: str = Field(pattern=_STABLE_ID_PATTERN, max_length=200)
+    request_id: str = Field(min_length=3, max_length=420)
+    field_id: Literal["factValue"] = "factValue"
+    column_grant_id: str = Field(pattern=_STABLE_ID_PATTERN, max_length=200)
+    schema_name: str = Field(min_length=1, max_length=128)
+    relation_name: str = Field(min_length=1, max_length=128)
+    column_name: str = Field(min_length=1, max_length=128)
+    projection_kind: Literal["identity", "mappedCase"]
+    comparison_kind: Literal["exactString"] = "exactString"
+    null_input: Literal["preserve"] = "preserve"
+    unknown_physical: Literal["null"] = "null"
+    entries: list[ValueEncodingEntryV3] = Field(min_length=1)
+    source_kind: Literal["viewPhysicalBaseline", "identityDeclared"]
+    source_sha256: str = Field(pattern=_SHA256_PATTERN)
+
+
+class ResolvedResultSemanticsV3(_V3Base):
+    binding_id: str = Field(pattern=_STABLE_ID_PATTERN, max_length=200)
+    request_id: str = Field(min_length=3, max_length=420)
+    empty_match: Literal["emptyResultSet"] = "emptyResultSet"
+    extra_rows: Literal["returnAll"] = "returnAll"
+    matched_null: Literal["preserve"] = "preserve"
+    consumer_cardinality: Literal["rowset"] = "rowset"
+    grain_conflict_policy: Literal["surfaceAllRows"] = "surfaceAllRows"
+
+
 class HandoffRefsV3(_V3Base):
     batch_sha256: str = Field(pattern=_SHA256_PATTERN)
     payload_sha256: str = Field(pattern=_SHA256_PATTERN)
@@ -611,6 +737,10 @@ def _validate_report_consistency(value: Any) -> Any:
             raise ValueError("blocked report must not carry resolved filters")
         if value.resolved_joins:
             raise ValueError("blocked report must not carry resolved joins")
+        if value.resolved_value_encodings:
+            raise ValueError("blocked report must not carry resolved value encodings")
+        if value.resolved_result_semantics is not None:
+            raise ValueError("blocked report must not carry resolved result semantics")
         if value.resolved_aggregation is not None:
             raise ValueError("blocked report must not carry resolved aggregation")
         if value.resolved_time_range is not None:
@@ -676,6 +806,8 @@ class BindingResolutionReportV3(V3ReportModel):
     resolved_aggregation: ResolvedAggregationV3 | None = None
     resolved_time_range: ResolvedTimeRangeV3 | None = None
     resolved_joins: list[ResolvedJoinV3] = Field(default_factory=list)
+    resolved_value_encodings: list[ResolvedValueEncodingV3] = Field(default_factory=list)
+    resolved_result_semantics: ResolvedResultSemanticsV3 | None = None
     usage_traceability_sha256: str = Field(pattern=_SHA256_PATTERN)
     issues: list[MetadataResolutionIssueV3] = Field(default_factory=list)
 

@@ -443,17 +443,25 @@ def _validate_generated_cross_references(
             "candidate parameter declarations do not match the V3 fact"
         )
 
-    # Result must match the request result contract
-    expected_result = request.query_requirements.result
+    # Result must match the effective candidate result contract
+    from release_sql_bot.application.value_semantics_v3 import (
+        expected_candidate_result_fields,
+    )
+
+    consumer = None
+    if report.resolved_result_semantics is not None:
+        consumer = str(report.resolved_result_semantics.consumer_cardinality)
+    expected_result = expected_candidate_result_fields(payload.resolution_request, consumer)
     result = generated.result
-    if (
-        str(result.column_name) != str(expected_result.column_name)
-        or str(result.data_type) != str(expected_result.data_type)
-        or str(result.cardinality) != str(expected_result.cardinality)
-        or result.nullable is not expected_result.nullable
-        or str(result.null_policy) != str(expected_result.null_policy)
-        or result.unit != expected_result.unit
-    ):
+    actual_result = {
+        "columnName": str(result.column_name),
+        "dataType": str(result.data_type),
+        "cardinality": str(result.cardinality),
+        "nullable": result.nullable,
+        "nullPolicy": str(result.null_policy),
+        "unit": result.unit,
+    }
+    if actual_result != expected_result:
         raise _CandidateCrossReferenceV3Error(
             "candidate result declaration does not match the V3 result contract"
         )
@@ -556,6 +564,7 @@ def _assemble_candidate_v3(
     )
 
     candidate = SqlTemplateCandidateV3(
+        schema_version="3.1.0" if str(generated.result.cardinality) == "rowset" else "3.0.0",
         template_code=generated.template_code,
         status="candidate",
         executable=False,
@@ -608,6 +617,7 @@ def _assemble_candidate_v3(
         parameters=parameters,
         result=CandidateResultV3(
             data_type=generated.result.data_type,
+            cardinality=generated.result.cardinality,
             nullable=generated.result.nullable,
             null_policy=generated.result.null_policy,
             unit=generated.result.unit,

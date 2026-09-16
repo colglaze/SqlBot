@@ -104,7 +104,13 @@ class TrustedIdentifiersV3:
 _DEFAULT_TRUSTED_IDENTIFIERS = TrustedIdentifiersV3(
     providers=frozenset({"fixed-offline-v3"}),
     models=frozenset({"fixed-model-v3"}),
-    prompt_versions=frozenset({"sqlserver-fact-candidate-v3.0", "sqlserver-fact-candidate-v3.1"}),
+    prompt_versions=frozenset(
+        {
+            "sqlserver-fact-candidate-v3.0",
+            "sqlserver-fact-candidate-v3.1",
+            "sqlserver-fact-candidate-v3.2",
+        }
+    ),
 )
 
 _REPOSITORY_UNAVAILABLE_CODES: frozenset[str] = frozenset(

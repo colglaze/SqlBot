@@ -412,6 +412,8 @@ def valid_metadata_resolved_report_v3_wire() -> dict[str, object]:
             "evidenceIds": ["ev-query-requirement"],
         },
         "resolvedJoins": [],
+        "resolvedValueEncodings": [],
+        "resolvedResultSemantics": None,
         "usageTraceabilitySha256": "e" * 64,
         "issues": [],
     }
@@ -496,6 +498,8 @@ def valid_blocked_report_v3_wire() -> dict[str, object]:
         "resolvedAggregation": None,
         "resolvedTimeRange": None,
         "resolvedJoins": [],
+        "resolvedValueEncodings": [],
+        "resolvedResultSemantics": None,
         "usageTraceabilitySha256": "e" * 64,
         "issues": [
             {

@@ -536,12 +536,13 @@ def test_safe_summary_emits_allowlist_counts_not_values() -> None:
     summary = settings.safe_summary()
     assert summary["evidence_trusted_providers_count"] == 1
     assert summary["evidence_trusted_models_count"] == 1
-    assert summary["evidence_trusted_prompt_versions_count"] == 2
+    assert summary["evidence_trusted_prompt_versions_count"] == 3
     dumped = json.dumps(summary)
     assert "fixed-offline-v3" not in dumped
     assert "fixed-model-v3" not in dumped
     assert "sqlserver-fact-candidate-v3.0" not in dumped
     assert "sqlserver-fact-candidate-v3.1" not in dumped
+    assert "sqlserver-fact-candidate-v3.2" not in dumped
 
 
 _MARKER_DUP = "MARKER_DUP_ALLOWLIST_7f3a"
