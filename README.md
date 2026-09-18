@@ -200,6 +200,8 @@ uv run release-sql-bot generate-v3 --input C:\private-review\resolve-request.jso
 
 准备需要启用 `RSB_DATABASE_ENABLED` 和 `RSB_APPROVAL_STORE_V3_ENABLED`；生成还需启用
 `RSB_CANDIDATE_STORE_V3_ENABLED`，配置模型与证据身份的精确允许列表，并取得本次在线模型调用授权。
+这两条命令都不连接 SQL Server；只要已批准的元数据快照和项目上下文已经形成，生成不需要 SQL Server
+证书。SQL Server 证书只在另外的实时 catalog/Phase 5A 受限验证步骤中需要。
 允许列表只过滤证据中的 provider/model/prompt 身份，不作为在线调用前的授权门禁；不可信身份在证据中
 置为 null 并报告 issue code，所以正式运行应事先配置真实 provider 与模型的精确名称并复核 issue codes。
 MongoDB 账号需要读取规则批次、批准记录和 active pointer；生成的写权限限 SqlBot 自有候选集合。
