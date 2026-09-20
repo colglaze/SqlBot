@@ -26,6 +26,12 @@ ReleaseSQLBot 是双 Agent 方案中的 Agent 2：消费 RuleReader（Agent 1）
   独立严格 camelCase consumer、wrapper/payload/batch canonical hash、身份与 evidence 闭包校验，
   任一坏请求使整批 fail closed；合法 V3 批次固定 `readyForMetadataResolution`、`executable=false`，
   不调用候选 provider，也不做任何 V3↔V2 转换；
+- 按精确 `ruleVersion` 与 `purpose` 选择并校验 Agent1 Schema 3.1.0 完整交付（tree + catalog +
+  result + batch），用途/哈希门禁照抄 Agent1 `selectDelivery`；2026-09-05 版本不能用于
+  `optimization-plan-generation` 或 `sql-compilation`；缺闭包不可消费且不回退旧 batch。CLI
+  `select-delivery-v31` 默认只打印身份与组合阻断；`--from-mongodb` 只读 Schema v6 完整交付；
+  仅在显式 `--mapping-grants` 时编译，也只打印哈希与 `staticStatus`，不打印 SQL 正文，
+  `executable=false`，**不是**已审核总 SQL；unresolved 映射仍不是表列批准；
 - 将六类未决语义及任意上游 blocking uncertainty 在模型调用前阻断；候选映射、来源、Prompt 和模型
   声明都不被当作表列授权；
 - 独立消费版本化 `ProjectBindingContextV2` 与 `GovernedMetadataSnapshot`，重新计算上下文、快照和
@@ -98,6 +104,15 @@ M4 校验 CASE 臂与 ELSE NULL。离线合成测试已覆盖正例、负例和�
 与 [当前进度](docs/progress/PROG-20260916.md)。
 该候选仅读取一个原始标志；来源核对发现值域与参考视图比较条件存在差异，
 不能将其视为完整报告释放查询，见 [语义差异记录](docs/bugs/BUG-20260916-01-first-template-view-semantic-gap.md)。
+2026-09-17 用户再次明确 SQL 必须与视图逻辑一致，并纠正最终产物应是**一条像视图的总 SQL**，
+而不是 18 条单事实模板。现有 CASE/rowset 仍是单事实切片，完整逻辑生成尚未实现；
+“只剩人工审核”仅指该局部候选。禁止查询或复制固定释放视图。完整目标、能力缺口和差分验收见
+[REQ-20260917-01](docs/requirements/REQ-20260917-01-view-equivalent-sql.md)、
+[BIZ-20260917-02](docs/decisions/BIZ-20260917-02-one-view-shaped-sql.md) 与
+[当前进度](docs/progress/PROG-20260920.md)。
+2026-09-20 已打通 3.1.0 完整交付 intake 与一条视图形态 SQL 的组合契约冻结，见
+[REQ-20260920-01](docs/requirements/REQ-20260920-01-complete-delivery-intake.md)；
+**总 SQL 仍未生成**，JOIN/OR/聚合门禁未删除，不得把本切片当成 handoff 已写入或 SQL 已编译。
 禁止把 V3 转换、裁剪或降级为 V2 契约
 （见 [REQ-20260906-04](docs/requirements/REQ-20260906-04-v3-downstream-pipeline-alignment.md)
 与 [BUG-20260906-01](docs/bugs/BUG-20260906-01-v3-phase4r-downstream-contract-gap.md)）。
@@ -393,7 +408,7 @@ uv run pytest
 - [双 Agent 职责决策](docs/decisions/BIZ-20260819-01-agent2-role-alignment.md)
 - [事实绑定技术方案](docs/architecture/DEV-20260819-01-fact-binding-contract.md)
 - [阶段路线图](docs/ROADMAP.md)
-- [当前进度](docs/progress/PROG-20260916.md)
+- [当前进度](docs/progress/PROG-20260920.md)
 
 旧的“整规则异常集合 SQL”文档作为历史记录保留，不再指导 SQL 生成；其中规则 JSON Schema 1.0
 只被复用于确定性的规则读取校验、canonicalization、哈希和 diff。

@@ -1,0 +1,20 @@
+{
+  "schemaId": "urn:rulereader:rule-parse-result:3.1.0",
+  "contractVersion": "3.1.0",
+  "sourceRepository": "RuleReader",
+  "sourcePath": "contracts/rule-parse-result-3.1.0.schema.json",
+  "sha256": "4e5774c559e770182b6de964324016309941f9f8292395cee2512f5e2048948f",
+  "sha256Note": "Runtime CRLF-normalized hash used by RESULT_SCHEMA_SHA256_V31.",
+  "observedAt": "2026-09-20",
+  "sourceHeadAtObservation": "62f868124631bb9f50caf9c71d4de4c6701f5aed",
+  "runtime": {
+    "normalization": "CRLF-normalized before hashing (raw.replace(b\"\\r\\n\", b\"\\n\").replace(b\"\\n\", b\"\\r\\n\"))",
+    "normalizedLineEnding": "CRLF",
+    "sha256": "4e5774c559e770182b6de964324016309941f9f8292395cee2512f5e2048948f"
+  },
+  "gitTree": {
+    "lineEnding": "LF",
+    "sha256": "84afcc57e4f3e0c2ecb20e1b30543dfcdde3decbafbd31978dc26a11d1eb8075",
+    "byteLength": 31216
+  }
+}

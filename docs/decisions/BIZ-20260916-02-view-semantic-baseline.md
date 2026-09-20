@@ -1,6 +1,7 @@
 # BIZ-20260916-02：MongoDB 规则驱动生成与视图取数基准
 
 - 状态：`approved`（用户于 2026-09-16 要求以视图为标准，并明确 Agent2 必须随 MongoDB 规则生成模板）。
+- 2026-09-17 部分替代：业务判定改以优化方案为准，见 [BIZ-20260917-03](BIZ-20260917-03-optimization-plan-authority.md)；本文件关于“禁止用固定释放视图代替生成、Mongo 驱动、物理关系仍可核对视图”的分工仍有效。
 - 影响需求：[REQ-20260915-01](../requirements/REQ-20260915-01-v3-mongodb-generation-entry.md)。
 - 相关差异：[BUG-20260916-01](../bugs/BUG-20260916-01-first-template-view-semantic-gap.md)。
 - 适用范围：当前这一份报告释放模板及其必要的辅助视图语义，不扩展到其他规则。

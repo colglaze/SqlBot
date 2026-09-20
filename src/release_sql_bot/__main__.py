@@ -101,6 +101,26 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Required per-run authorization to invoke the configured model provider.",
     )
+
+    select_delivery = subparsers.add_parser(
+        "select-delivery-v31",
+        help="Select a 3.1.0 complete delivery; compile only with explicit mapping grants.",
+    )
+    select_delivery.add_argument("--purpose", required=True)
+    select_delivery.add_argument("--rule-version", required=True)
+    select_delivery.add_argument(
+        "--delivery-root",
+        help="Directory of one delivery or a bundle containing report/ and data/.",
+    )
+    select_delivery.add_argument(
+        "--from-mongodb",
+        action="store_true",
+        help="Read Schema v6 complete delivery from configured MongoDB (read-only).",
+    )
+    select_delivery.add_argument(
+        "--mapping-grants",
+        help="Optional synthetic mapping bundle JSON. Prints hashes, never SQL text.",
+    )
     return parser
 
 
@@ -667,6 +687,131 @@ def _run_generate_v3(args: argparse.Namespace) -> int:
     return _EXIT_BLOCKED
 
 
+def _run_select_delivery_v31(args: argparse.Namespace) -> int:
+    from release_sql_bot.application.complete_delivery_intake_v31 import (
+        CompleteDeliveryInvalidV31Error,
+        CompleteDeliveryNotConsumableV31Error,
+        CompleteDeliveryNotFoundV31Error,
+        select_complete_delivery_v31,
+    )
+    from release_sql_bot.application.composition_plan_v31 import (
+        ViewShapedSqlCompilationBlockedV31,
+        build_view_shaped_sql_composition_plan_v31,
+    )
+    from release_sql_bot.application.view_shaped_sql_validation_v31 import (
+        compile_and_validate_view_shaped_sql_v31,
+    )
+    from release_sql_bot.domain.purpose_v31 import DeliveryPurposeV31
+    from release_sql_bot.domain.view_shaped_sql_v31 import ViewShapedMappingBundleV31
+    from release_sql_bot.infrastructure.complete_delivery_fs_v31 import (
+        FilesystemCompleteDeliverySourceV31,
+        FilesystemCompleteDeliveryV31Error,
+    )
+    from release_sql_bot.infrastructure.complete_delivery_mongo_v31 import (
+        MongodbCompleteDeliverySourceV31,
+        MongodbCompleteDeliveryV31Error,
+    )
+
+    try:
+        purpose = DeliveryPurposeV31(args.purpose)
+    except ValueError:
+        print(json.dumps({"error": "Delivery is not available for the requested purpose"}))
+        return _EXIT_BLOCKED
+
+    if not args.from_mongodb and not args.delivery_root:
+        print(json.dumps({"error": "Delivery is not available for the requested purpose"}))
+        return _EXIT_BLOCKED
+
+    async def _select():
+        if args.from_mongodb:
+            source = MongodbCompleteDeliverySourceV31(get_settings())
+        else:
+            source = FilesystemCompleteDeliverySourceV31(Path(args.delivery_root))
+        return await select_complete_delivery_v31(
+            source,
+            purpose=purpose,
+            rule_version=args.rule_version,
+        )
+
+    try:
+        delivery = asyncio.run(_select())
+    except CompleteDeliveryNotFoundV31Error:
+        print(json.dumps({"error": "No complete delivery exists for the exact rule version"}))
+        return _EXIT_BLOCKED
+    except CompleteDeliveryNotConsumableV31Error as error:
+        print(
+            json.dumps(
+                {
+                    "consumable": False,
+                    "sqlGenerated": False,
+                    "missing": list(error.missing),
+                }
+            )
+        )
+        return _EXIT_BLOCKED
+    except CompleteDeliveryInvalidV31Error as error:
+        print(json.dumps({"error": str(error), "sqlGenerated": False}))
+        return _EXIT_BLOCKED
+    except FilesystemCompleteDeliveryV31Error:
+        print(
+            json.dumps(
+                {
+                    "error": "Complete delivery files could not be parsed",
+                    "sqlGenerated": False,
+                }
+            )
+        )
+        return _EXIT_BLOCKED
+    except MongodbCompleteDeliveryV31Error:
+        print(
+            json.dumps(
+                {
+                    "error": "Complete delivery MongoDB source is unavailable",
+                    "sqlGenerated": False,
+                }
+            )
+        )
+        return _EXIT_BLOCKED
+
+    plan = build_view_shaped_sql_composition_plan_v31(delivery)
+    payload = {
+        "ruleVersion": delivery.rule_version,
+        "schemaVersion": delivery.schema_version,
+        "purpose": delivery.purpose,
+        "consumable": delivery.consumable,
+        "status": delivery.status,
+        "executable": delivery.executable,
+        "stageNames": list(delivery.stage_names),
+        "requestCount": delivery.request_count,
+        "sourceFileSha256": delivery.source_file_sha256,
+        "parseInputSha256": delivery.parse_input_sha256,
+        "catalogDigest": delivery.catalog_digest,
+        "sqlGenerated": plan.sql_generated,
+        "compilationBlockers": list(plan.compilation_blockers),
+    }
+    mapping_path = getattr(args, "mapping_grants", None)
+    if mapping_path:
+        try:
+            raw = json.loads(Path(mapping_path).read_text(encoding="utf-8"))
+            mapping = ViewShapedMappingBundleV31.model_validate(raw)
+            compiled = compile_and_validate_view_shaped_sql_v31(delivery, mapping)
+        except (OSError, json.JSONDecodeError, ValueError, ViewShapedSqlCompilationBlockedV31):
+            payload["sqlGenerated"] = False
+            payload["error"] = "View-shaped SQL was not compiled"
+            print(json.dumps(payload))
+            return _EXIT_BLOCKED
+        payload["sqlGenerated"] = compiled.sql_generated
+        payload["executable"] = compiled.executable
+        payload["staticStatus"] = compiled.static_status
+        payload["contentSha256"] = compiled.content_sha256
+        payload["mappingSha256"] = compiled.mapping_sha256
+        payload["compilationBlockers"] = list(compiled.static_issue_codes)
+        print(json.dumps(payload))
+        return _EXIT_PASSED if compiled.static_status == "passed" else _EXIT_BLOCKED
+    print(json.dumps(payload))
+    return _EXIT_PASSED
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     ensure_supported_python()
     parser = build_parser()
@@ -695,3 +840,6 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     if args.command == "prepare-v3":
         raise SystemExit(_run_prepare_v3(args))
+
+    if args.command == "select-delivery-v31":
+        raise SystemExit(_run_select_delivery_v31(args))

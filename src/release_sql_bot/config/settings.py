@@ -43,6 +43,11 @@ class Settings(BaseSettings):
         min_length=1,
         max_length=128,
     )
+    mongodb_rule_versions_v3_collection: str = Field(
+        default="rule_versions_v3",
+        min_length=1,
+        max_length=128,
+    )
     mongodb_rule_collection: str = Field(default="rule_versions", min_length=1, max_length=128)
     mongodb_read_only: bool = True
     mongodb_tls: bool = False

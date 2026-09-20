@@ -1,0 +1,20 @@
+{
+  "schemaId": "urn:rulereader:business-confirmed-fact-catalog:3.0.0",
+  "contractVersion": "3.0.0",
+  "sourceRepository": "RuleReader",
+  "sourcePath": "contracts/business-confirmed-fact-catalog-3.0.0.schema.json",
+  "sha256": "bb2446f2112f073967358c7b0c36a9bab4565ca30d35dbce24142191b50f450c",
+  "sha256Note": "Runtime CRLF-normalized hash used by CATALOG_SCHEMA_SHA256_V3. Matches the 2026-09-06 catalog Schema observation.",
+  "observedAt": "2026-09-20",
+  "sourceHeadAtObservation": "62f868124631bb9f50caf9c71d4de4c6701f5aed",
+  "runtime": {
+    "normalization": "CRLF-normalized before hashing (raw.replace(b\"\\r\\n\", b\"\\n\").replace(b\"\\n\", b\"\\r\\n\"))",
+    "normalizedLineEnding": "CRLF",
+    "sha256": "bb2446f2112f073967358c7b0c36a9bab4565ca30d35dbce24142191b50f450c"
+  },
+  "gitTree": {
+    "lineEnding": "LF",
+    "sha256": "5d00c3c08969b15f5c0e789d9c14db722ef03c4a02a2a23ebaae76819b0d201d",
+    "byteLength": 7063
+  }
+}

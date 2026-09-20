@@ -1,0 +1,1318 @@
+{
+  "$defs": {
+    "AggregationFunctionV3": {
+      "enum": [
+        "sum",
+        "count",
+        "countDistinct",
+        "avg",
+        "min",
+        "max"
+      ],
+      "title": "AggregationFunctionV3",
+      "type": "string"
+    },
+    "AggregationModeV3": {
+      "enum": [
+        "none",
+        "precomputed",
+        "compute",
+        "exists"
+      ],
+      "title": "AggregationModeV3",
+      "type": "string"
+    },
+    "AggregationRequirementV3": {
+      "additionalProperties": false,
+      "properties": {
+        "distinct": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Distinct"
+        },
+        "evidenceIds": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidenceids",
+          "type": "array"
+        },
+        "function": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AggregationFunctionV3"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "groupByFieldIds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Groupbyfieldids",
+          "type": "array"
+        },
+        "inputFieldIds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Inputfieldids",
+          "type": "array"
+        },
+        "mode": {
+          "$ref": "#/$defs/AggregationModeV3"
+        }
+      },
+      "required": [
+        "mode",
+        "function",
+        "inputFieldIds",
+        "groupByFieldIds",
+        "distinct",
+        "evidenceIds"
+      ],
+      "title": "AggregationRequirementV3",
+      "type": "object"
+    },
+    "BindableFactV3": {
+      "additionalProperties": false,
+      "properties": {
+        "allowedValues": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "title": "Allowedvalues",
+          "type": "array"
+        },
+        "dataType": {
+          "$ref": "#/$defs/FactDataType"
+        },
+        "description": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "factCode": {
+          "maxLength": 160,
+          "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+$",
+          "title": "Factcode",
+          "type": "string"
+        },
+        "factKind": {
+          "enum": [
+            "source",
+            "aggregate",
+            "exists"
+          ],
+          "title": "Factkind",
+          "type": "string"
+        },
+        "grain": {
+          "maxLength": 100,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Grain",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "nullPolicy": {
+          "$ref": "#/$defs/NullPolicy"
+        },
+        "nullable": {
+          "title": "Nullable",
+          "type": "boolean"
+        },
+        "parameters": {
+          "items": {
+            "$ref": "#/$defs/FactParameterV3"
+          },
+          "minItems": 1,
+          "title": "Parameters",
+          "type": "array"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "factCode",
+        "name",
+        "factKind",
+        "dataType",
+        "description",
+        "nullable",
+        "nullPolicy",
+        "grain",
+        "parameters"
+      ],
+      "title": "BindableFactV3",
+      "type": "object"
+    },
+    "CandidateRefV31": {
+      "additionalProperties": false,
+      "properties": {
+        "parseInputSha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Parseinputsha256",
+          "type": "string"
+        },
+        "payloadSha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Payloadsha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "payloadSha256",
+        "parseInputSha256"
+      ],
+      "title": "CandidateRefV31",
+      "type": "object"
+    },
+    "CatalogRefV31": {
+      "additionalProperties": false,
+      "properties": {
+        "catalogDigest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Catalogdigest",
+          "type": "string"
+        },
+        "catalogId": {
+          "maxLength": 120,
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "title": "Catalogid",
+          "type": "string"
+        },
+        "catalogVersion": {
+          "maxLength": 120,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "title": "Catalogversion",
+          "type": "string"
+        },
+        "payloadSha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Payloadsha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "catalogId",
+        "catalogVersion",
+        "catalogDigest",
+        "payloadSha256"
+      ],
+      "title": "CatalogRefV31",
+      "type": "object"
+    },
+    "CompleteDeliveryRefV31": {
+      "additionalProperties": false,
+      "properties": {
+        "candidatePayloadSha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Candidatepayloadsha256",
+          "type": "string"
+        },
+        "catalogPayloadSha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Catalogpayloadsha256",
+          "type": "string"
+        },
+        "purpose": {
+          "const": "optimization-plan-generation",
+          "title": "Purpose",
+          "type": "string"
+        },
+        "resultPayloadSha256": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resultpayloadsha256"
+        }
+      },
+      "required": [
+        "catalogPayloadSha256",
+        "candidatePayloadSha256",
+        "purpose"
+      ],
+      "title": "CompleteDeliveryRefV31",
+      "type": "object"
+    },
+    "EntityRequirementV3": {
+      "additionalProperties": false,
+      "properties": {
+        "entityType": {
+          "maxLength": 100,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Entitytype",
+          "type": "string"
+        },
+        "evidenceIds": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidenceids",
+          "type": "array"
+        },
+        "grain": {
+          "maxLength": 100,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Grain",
+          "type": "string"
+        },
+        "keyParameters": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Keyparameters",
+          "type": "array"
+        }
+      },
+      "required": [
+        "entityType",
+        "grain",
+        "keyParameters",
+        "evidenceIds"
+      ],
+      "title": "EntityRequirementV3",
+      "type": "object"
+    },
+    "FactDataType": {
+      "enum": [
+        "string",
+        "integer",
+        "number",
+        "boolean",
+        "date",
+        "datetime",
+        "enum",
+        "money",
+        "list",
+        "unknown"
+      ],
+      "title": "FactDataType",
+      "type": "string"
+    },
+    "FactDeclarationV31": {
+      "additionalProperties": false,
+      "properties": {
+        "fact": {
+          "$ref": "#/$defs/BindableFactV3"
+        },
+        "query": {
+          "$ref": "#/$defs/QueryRequirementsV31"
+        },
+        "uncertainties": {
+          "items": {
+            "$ref": "#/$defs/UncertaintyV3"
+          },
+          "title": "Uncertainties",
+          "type": "array"
+        }
+      },
+      "required": [
+        "fact",
+        "query"
+      ],
+      "title": "FactDeclarationV31",
+      "type": "object"
+    },
+    "FactParameterV3": {
+      "additionalProperties": false,
+      "properties": {
+        "dataType": {
+          "$ref": "#/$defs/FactDataType"
+        },
+        "description": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 100,
+          "pattern": "^[a-z][A-Za-z0-9]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "role": {
+          "enum": [
+            "entityKey",
+            "filter",
+            "timeAnchor"
+          ],
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "role",
+        "dataType",
+        "required",
+        "description"
+      ],
+      "title": "FactParameterV3",
+      "type": "object"
+    },
+    "FieldRequirementV3": {
+      "additionalProperties": false,
+      "properties": {
+        "dataType": {
+          "$ref": "#/$defs/FactDataType"
+        },
+        "evidenceIds": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidenceids",
+          "type": "array"
+        },
+        "fieldId": {
+          "maxLength": 160,
+          "pattern": "^[a-z][A-Za-z0-9_.-]*$",
+          "title": "Fieldid",
+          "type": "string"
+        },
+        "logicalName": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Logicalname",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "role": {
+          "$ref": "#/$defs/FieldRoleV3"
+        }
+      },
+      "required": [
+        "fieldId",
+        "role",
+        "logicalName",
+        "dataType",
+        "required",
+        "evidenceIds"
+      ],
+      "title": "FieldRequirementV3",
+      "type": "object"
+    },
+    "FieldRoleV3": {
+      "enum": [
+        "value",
+        "entityKey",
+        "filter",
+        "groupBy",
+        "time"
+      ],
+      "title": "FieldRoleV3",
+      "type": "string"
+    },
+    "FilterRequirementV3": {
+      "additionalProperties": false,
+      "properties": {
+        "evidenceIds": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidenceids",
+          "type": "array"
+        },
+        "fieldId": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Fieldid",
+          "type": "string"
+        },
+        "filterId": {
+          "maxLength": 160,
+          "pattern": "^[a-z][A-Za-z0-9_.-]*$",
+          "title": "Filterid",
+          "type": "string"
+        },
+        "nullPolicy": {
+          "$ref": "#/$defs/NullPolicy"
+        },
+        "operator": {
+          "$ref": "#/$defs/RuleOperator"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FilterValueV3"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "filterId",
+        "fieldId",
+        "operator",
+        "value",
+        "nullPolicy",
+        "required",
+        "evidenceIds"
+      ],
+      "title": "FilterRequirementV3",
+      "type": "object"
+    },
+    "FilterSetV3": {
+      "additionalProperties": false,
+      "properties": {
+        "completeness": {
+          "const": "complete",
+          "title": "Completeness",
+          "type": "string"
+        },
+        "evidenceIds": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidenceids",
+          "type": "array"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/FilterRequirementV3"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items",
+        "completeness",
+        "evidenceIds"
+      ],
+      "title": "FilterSetV3",
+      "type": "object"
+    },
+    "FilterValueV3": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/ValueSourceKindV3"
+        },
+        "literal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Literal"
+        },
+        "parameterName": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parametername"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "FilterValueV3",
+      "type": "object"
+    },
+    "MemberSnapshotV31": {
+      "additionalProperties": false,
+      "properties": {
+        "facts": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Facts",
+          "type": "object"
+        },
+        "memberKey": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Memberkey",
+          "type": "string"
+        }
+      },
+      "required": [
+        "memberKey",
+        "facts"
+      ],
+      "title": "MemberSnapshotV31",
+      "type": "object"
+    },
+    "NullPolicy": {
+      "enum": [
+        "fail",
+        "pass",
+        "indeterminate",
+        "error"
+      ],
+      "title": "NullPolicy",
+      "type": "string"
+    },
+    "ParserProvenanceV31": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Model",
+          "type": "string"
+        },
+        "parserVersion": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Parserversion",
+          "type": "string"
+        },
+        "promptVersion": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Promptversion",
+          "type": "string"
+        },
+        "provider": {
+          "const": "reviewed_import",
+          "title": "Provider",
+          "type": "string"
+        }
+      },
+      "required": [
+        "parserVersion",
+        "promptVersion",
+        "provider",
+        "model"
+      ],
+      "title": "ParserProvenanceV31",
+      "type": "object"
+    },
+    "ProvenanceV31": {
+      "additionalProperties": false,
+      "properties": {
+        "extractedSections": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Extractedsections",
+          "type": "array"
+        },
+        "extractorVersion": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Extractorversion",
+          "type": "string"
+        },
+        "model": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Model",
+          "type": "string"
+        },
+        "parseInputCharacterCount": {
+          "minimum": 1,
+          "title": "Parseinputcharactercount",
+          "type": "integer"
+        },
+        "parseInputSha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Parseinputsha256",
+          "type": "string"
+        },
+        "parserVersion": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Parserversion",
+          "type": "string"
+        },
+        "promptVersion": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Promptversion",
+          "type": "string"
+        },
+        "provider": {
+          "const": "reviewed_import",
+          "title": "Provider",
+          "type": "string"
+        },
+        "relativePath": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Relativepath"
+        },
+        "sourceFileByteLength": {
+          "minimum": 1,
+          "title": "Sourcefilebytelength",
+          "type": "integer"
+        },
+        "sourceName": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Sourcename",
+          "type": "string"
+        },
+        "sourceSha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sourcesha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sourceName",
+        "sourceSha256",
+        "parseInputSha256",
+        "sourceFileByteLength",
+        "parseInputCharacterCount",
+        "extractorVersion",
+        "extractedSections",
+        "parserVersion",
+        "promptVersion",
+        "provider",
+        "model"
+      ],
+      "title": "ProvenanceV31",
+      "type": "object"
+    },
+    "QueryRequirementsV31": {
+      "additionalProperties": false,
+      "properties": {
+        "aggregation": {
+          "$ref": "#/$defs/AggregationRequirementV3"
+        },
+        "entity": {
+          "$ref": "#/$defs/EntityRequirementV3"
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/FieldRequirementV3"
+          },
+          "minItems": 1,
+          "title": "Fields",
+          "type": "array"
+        },
+        "filters": {
+          "$ref": "#/$defs/FilterSetV3"
+        },
+        "result": {
+          "$ref": "#/$defs/ResultRequirementV31"
+        },
+        "timeRange": {
+          "$ref": "#/$defs/TimeRangeRequirementV3"
+        }
+      },
+      "required": [
+        "entity",
+        "fields",
+        "filters",
+        "aggregation",
+        "timeRange",
+        "result"
+      ],
+      "title": "QueryRequirementsV31",
+      "type": "object"
+    },
+    "ResultRequirementV31": {
+      "additionalProperties": false,
+      "properties": {
+        "cardinality": {
+          "enum": [
+            "scalar",
+            "set"
+          ],
+          "title": "Cardinality",
+          "type": "string"
+        },
+        "columnName": {
+          "const": "fact_value",
+          "title": "Columnname",
+          "type": "string"
+        },
+        "dataType": {
+          "$ref": "#/$defs/FactDataType"
+        },
+        "nullPolicy": {
+          "$ref": "#/$defs/NullPolicy"
+        },
+        "nullable": {
+          "title": "Nullable",
+          "type": "boolean"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "columnName",
+        "dataType",
+        "cardinality",
+        "nullable",
+        "nullPolicy"
+      ],
+      "title": "ResultRequirementV31",
+      "type": "object"
+    },
+    "RuleOperator": {
+      "enum": [
+        "eq",
+        "ne",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "in",
+        "not_in",
+        "is_null",
+        "is_not_null",
+        "is_blank",
+        "is_not_blank",
+        "contains",
+        "not_contains"
+      ],
+      "title": "RuleOperator",
+      "type": "string"
+    },
+    "RuleOutcomeV3": {
+      "enum": [
+        "READY",
+        "WAITING_COMPLETION",
+        "WAITING_CONDITIONS",
+        "NO_RELEASE_REQUIRED",
+        "ALREADY_RELEASED",
+        "SKIPPED",
+        "INDETERMINATE"
+      ],
+      "title": "RuleOutcomeV3",
+      "type": "string"
+    },
+    "TestCaseV31": {
+      "additionalProperties": false,
+      "properties": {
+        "caseId": {
+          "maxLength": 120,
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "title": "Caseid",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "expectedMatchedRuleCodes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Expectedmatchedrulecodes",
+          "type": "array"
+        },
+        "expectedOutcome": {
+          "$ref": "#/$defs/RuleOutcomeV3"
+        },
+        "expectedReasonCode": {
+          "maxLength": 120,
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "title": "Expectedreasoncode",
+          "type": "string"
+        },
+        "given": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Given",
+          "type": "object"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/MemberSnapshotV31"
+          },
+          "title": "Members",
+          "type": "array"
+        },
+        "runtime": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "title": "Runtime",
+          "type": "object"
+        }
+      },
+      "required": [
+        "caseId",
+        "description",
+        "given",
+        "expectedOutcome",
+        "expectedReasonCode",
+        "expectedMatchedRuleCodes"
+      ],
+      "title": "TestCaseV31",
+      "type": "object"
+    },
+    "TimeBoundaryV3": {
+      "additionalProperties": false,
+      "properties": {
+        "inclusive": {
+          "title": "Inclusive",
+          "type": "boolean"
+        },
+        "kind": {
+          "$ref": "#/$defs/ValueSourceKindV3"
+        },
+        "parameterName": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parametername"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "kind",
+        "inclusive"
+      ],
+      "title": "TimeBoundaryV3",
+      "type": "object"
+    },
+    "TimeRangeModeV3": {
+      "enum": [
+        "none",
+        "asOf",
+        "between"
+      ],
+      "title": "TimeRangeModeV3",
+      "type": "string"
+    },
+    "TimeRangeRequirementV3": {
+      "additionalProperties": false,
+      "properties": {
+        "end": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimeBoundaryV3"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "evidenceIds": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidenceids",
+          "type": "array"
+        },
+        "mode": {
+          "$ref": "#/$defs/TimeRangeModeV3"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimeBoundaryV3"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "timeFieldId": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timefieldid"
+        },
+        "timezone": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timezone"
+        }
+      },
+      "required": [
+        "mode",
+        "evidenceIds"
+      ],
+      "title": "TimeRangeRequirementV3",
+      "type": "object"
+    },
+    "UncertaintyV3": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 120,
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "title": "Code",
+          "type": "string"
+        },
+        "evidenceIds": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidenceids",
+          "type": "array"
+        },
+        "impact": {
+          "const": "warning",
+          "title": "Impact",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "uncertaintyId": {
+          "maxLength": 200,
+          "pattern": "^[a-z][A-Za-z0-9_.:-]*$",
+          "title": "Uncertaintyid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "uncertaintyId",
+        "code",
+        "impact",
+        "reason",
+        "evidenceIds"
+      ],
+      "title": "UncertaintyV3",
+      "type": "object"
+    },
+    "ValueSourceKindV3": {
+      "enum": [
+        "parameter",
+        "literal"
+      ],
+      "title": "ValueSourceKindV3",
+      "type": "string"
+    }
+  },
+  "$id": "urn:rulereader:rule-parse-result:3.1.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "agent2ReadinessReady": {
+      "title": "Agent2Readinessready",
+      "type": "boolean"
+    },
+    "candidateRef": {
+      "$ref": "#/$defs/CandidateRefV31"
+    },
+    "catalogRef": {
+      "$ref": "#/$defs/CatalogRefV31"
+    },
+    "deliveryRef": {
+      "$ref": "#/$defs/CompleteDeliveryRefV31"
+    },
+    "executable": {
+      "const": false,
+      "title": "Executable",
+      "type": "boolean"
+    },
+    "factDeclarations": {
+      "items": {
+        "$ref": "#/$defs/FactDeclarationV31"
+      },
+      "minItems": 1,
+      "title": "Factdeclarations",
+      "type": "array"
+    },
+    "generatedAt": {
+      "format": "date-time",
+      "title": "Generatedat",
+      "type": "string"
+    },
+    "parser": {
+      "$ref": "#/$defs/ParserProvenanceV31"
+    },
+    "ruleSetId": {
+      "maxLength": 120,
+      "pattern": "^[A-Z][A-Z0-9_]*$",
+      "title": "Rulesetid",
+      "type": "string"
+    },
+    "ruleVersion": {
+      "maxLength": 260,
+      "minLength": 1,
+      "title": "Ruleversion",
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": "3.1.0",
+      "title": "Schemaversion",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/ProvenanceV31"
+    },
+    "status": {
+      "const": "draft",
+      "title": "Status",
+      "type": "string"
+    },
+    "testCases": {
+      "items": {
+        "$ref": "#/$defs/TestCaseV31"
+      },
+      "minItems": 1,
+      "title": "Testcases",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "ruleVersion",
+    "ruleSetId",
+    "generatedAt",
+    "status",
+    "executable",
+    "source",
+    "parser",
+    "catalogRef",
+    "candidateRef",
+    "deliveryRef",
+    "factDeclarations",
+    "testCases",
+    "agent2ReadinessReady"
+  ],
+  "title": "RuleParseResult 3.1.0",
+  "type": "object"
+}

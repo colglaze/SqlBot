@@ -2,6 +2,15 @@
 
 路线图按可验证的事实级 Agent 2 切片推进。只有当前 Phase 的 DoD 全部满足后，才进入下一阶段。
 
+2026-09-17 新增[视图逻辑一致目标](requirements/REQ-20260917-01-view-equivalent-sql.md)，
+同日纠正最终产物为[一条视图形态的只读 SQL](decisions/BIZ-20260917-02-one-view-shaped-sql.md)：
+单事实 CASE/rowset 或逐条 `generate-v3` 都不能作为该目标的完成证据。
+2026-09-20 已打通 [3.1.0 完整交付 intake](requirements/REQ-20260920-01-complete-delivery-intake.md)，
+并增加离线 [确定性视图形态 SQL 编译](requirements/REQ-20260920-02-view-shaped-sql-compile.md) 与
+[Schema v6 只读消费、三值求值和 COUNT/EXISTS 形状](requirements/REQ-20260920-03-v31-mongo-evaluate-indeterminate.md)：
+合成映射下可生成不可执行候选；无映射或真实包仍阻断。**不是** SQL Server 已验证或已审核发布。
+既有单事实 M3/M4 门禁未删除。既有单事实阶段完成状态不代表该目标完成。
+
 ## Phase 0：文档和边界
 
 状态：**完成**

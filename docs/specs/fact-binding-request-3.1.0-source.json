@@ -1,0 +1,20 @@
+{
+  "schemaId": "urn:rulereader:fact-binding-request:3.1.0",
+  "contractVersion": "3.1.0",
+  "sourceRepository": "RuleReader",
+  "sourcePath": "contracts/fact-binding-request-3.1.0.schema.json",
+  "sha256": "9102fa3fe2e67e7e266dcd41fc40c7f00a629158fb013f9e61ef739d11a270fc",
+  "sha256Note": "Runtime CRLF-normalized hash used by FACT_BINDING_SCHEMA_SHA256_V31.",
+  "observedAt": "2026-09-20",
+  "sourceHeadAtObservation": "62f868124631bb9f50caf9c71d4de4c6701f5aed",
+  "runtime": {
+    "normalization": "CRLF-normalized before hashing (raw.replace(b\"\\r\\n\", b\"\\n\").replace(b\"\\n\", b\"\\r\\n\"))",
+    "normalizedLineEnding": "CRLF",
+    "sha256": "9102fa3fe2e67e7e266dcd41fc40c7f00a629158fb013f9e61ef739d11a270fc"
+  },
+  "gitTree": {
+    "lineEnding": "LF",
+    "sha256": "a51ff38fe04574e11c629c9551a4903318a0a1c66542d22c1a9f40ee34d0e9f3",
+    "byteLength": 32184
+  }
+}

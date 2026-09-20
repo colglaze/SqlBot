@@ -1,0 +1,302 @@
+{
+  "$defs": {
+    "ConfirmedFactV3": {
+      "additionalProperties": false,
+      "properties": {
+        "allowedValues": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "title": "Allowedvalues",
+          "type": "array"
+        },
+        "bindingIssues": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Bindingissues",
+          "type": "array"
+        },
+        "bindingProfileRef": {
+          "anyOf": [
+            {
+              "maxLength": 240,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bindingprofileref"
+        },
+        "dataType": {
+          "$ref": "#/$defs/FactDataType"
+        },
+        "description": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "evidenceRefs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidencerefs",
+          "type": "array"
+        },
+        "factCode": {
+          "maxLength": 160,
+          "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+$",
+          "title": "Factcode",
+          "type": "string"
+        },
+        "grain": {
+          "maxLength": 100,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Grain",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "nullPolicy": {
+          "$ref": "#/$defs/NullPolicy"
+        },
+        "nullable": {
+          "title": "Nullable",
+          "type": "boolean"
+        },
+        "parameters": {
+          "items": {
+            "$ref": "#/$defs/FactParameterV3"
+          },
+          "minItems": 1,
+          "title": "Parameters",
+          "type": "array"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "factCode",
+        "name",
+        "description",
+        "dataType",
+        "nullable",
+        "nullPolicy",
+        "grain",
+        "parameters",
+        "evidenceRefs"
+      ],
+      "title": "ConfirmedFactV3",
+      "type": "object"
+    },
+    "FactDataType": {
+      "enum": [
+        "string",
+        "integer",
+        "number",
+        "boolean",
+        "date",
+        "datetime",
+        "enum",
+        "money",
+        "list",
+        "unknown"
+      ],
+      "title": "FactDataType",
+      "type": "string"
+    },
+    "FactEvidenceV3": {
+      "additionalProperties": false,
+      "properties": {
+        "evidenceId": {
+          "maxLength": 160,
+          "pattern": "^[a-z][a-z0-9_.-]*$",
+          "title": "Evidenceid",
+          "type": "string"
+        },
+        "locator": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Locator",
+          "type": "string"
+        },
+        "note": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Note",
+          "type": "string"
+        },
+        "sourceId": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Sourceid",
+          "type": "string"
+        },
+        "sourceKind": {
+          "enum": [
+            "businessConfirmation",
+            "ruleText",
+            "viewDefinition"
+          ],
+          "title": "Sourcekind",
+          "type": "string"
+        },
+        "sourceSha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sourcesha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidenceId",
+        "sourceKind",
+        "sourceId",
+        "sourceSha256",
+        "locator",
+        "note"
+      ],
+      "title": "FactEvidenceV3",
+      "type": "object"
+    },
+    "FactParameterRoleV3": {
+      "enum": [
+        "entityKey",
+        "filter",
+        "timeAnchor"
+      ],
+      "title": "FactParameterRoleV3",
+      "type": "string"
+    },
+    "FactParameterV3": {
+      "additionalProperties": false,
+      "properties": {
+        "dataType": {
+          "$ref": "#/$defs/FactDataType"
+        },
+        "description": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 100,
+          "pattern": "^[a-z][A-Za-z0-9]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "role": {
+          "$ref": "#/$defs/FactParameterRoleV3"
+        }
+      },
+      "required": [
+        "name",
+        "role",
+        "dataType",
+        "description"
+      ],
+      "title": "FactParameterV3",
+      "type": "object"
+    },
+    "NullPolicy": {
+      "enum": [
+        "fail",
+        "pass",
+        "indeterminate",
+        "error"
+      ],
+      "title": "NullPolicy",
+      "type": "string"
+    }
+  },
+  "$id": "urn:rulereader:business-confirmed-fact-catalog:3.0.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "catalogDigest": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Catalogdigest",
+      "type": "string"
+    },
+    "catalogId": {
+      "maxLength": 120,
+      "pattern": "^[A-Z][A-Z0-9_]*$",
+      "title": "Catalogid",
+      "type": "string"
+    },
+    "catalogVersion": {
+      "maxLength": 120,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "title": "Catalogversion",
+      "type": "string"
+    },
+    "contractVersion": {
+      "const": "3.0.0",
+      "title": "Contractversion",
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/FactEvidenceV3"
+      },
+      "minItems": 1,
+      "title": "Evidence",
+      "type": "array"
+    },
+    "facts": {
+      "items": {
+        "$ref": "#/$defs/ConfirmedFactV3"
+      },
+      "minItems": 1,
+      "title": "Facts",
+      "type": "array"
+    }
+  },
+  "required": [
+    "contractVersion",
+    "catalogId",
+    "catalogVersion",
+    "catalogDigest",
+    "facts",
+    "evidence"
+  ],
+  "title": "BusinessConfirmedFactCatalog 3.0.0",
+  "type": "object"
+}
