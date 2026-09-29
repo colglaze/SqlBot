@@ -3,7 +3,7 @@
 `docs/` 是项目业务意图、技术方案、数据契约、决策和进度的事实来源。当前实现仍是事实级 Agent 2 基线；本阶段最终产物为一条只读清单 SQL，判定权威为 [优化方案](decisions/BIZ-20260917-03-optimization-plan-authority.md)。
 
 ## 阅读顺序
-1. [当前进度](progress/PROG-20260920.md)
+1. [当前进度](progress/PROG-20260921.md)
 2. [Schema v6 只读消费、三值求值与离线引擎对齐](requirements/REQ-20260920-03-v31-mongo-evaluate-indeterminate.md)
 3. [授权后续切片边界](decisions/BIZ-20260920-02-authorized-v31-followthrough.md)
 4. [Schema v6 只读适配、独立求值与三值 SQL](architecture/DEV-20260920-03-v31-mongo-evaluate-indeterminate.md)
@@ -120,6 +120,7 @@
 - [DEV-20260920-03：Schema v6 只读适配、独立求值与三值 SQL](architecture/DEV-20260920-03-v31-mongo-evaluate-indeterminate.md)
 - [DEV-20260920-02：视图形态 SQL 确定性编译与独立 AST](architecture/DEV-20260920-02-view-shaped-sql-compile.md)
 - [DEV-20260920-01：3.1.0 完整交付 intake 与视图形态组合契约](architecture/DEV-20260920-01-complete-delivery-intake.md)
+- [PROG-20260921：用户核实字段清单后的映射草稿与编译阻断](progress/PROG-20260921.md)
 - [PROG-20260920：3.1.0 完整交付 intake 与组合契约冻结](progress/PROG-20260920.md)
 - [FactBindingRequest 3.1.0 上游 Schema 来源清单](specs/fact-binding-request-3.1.0-source.json)
 - [rule-structure-candidate 3.1.0 上游 Schema 来源清单](specs/rule-structure-candidate-3.1.0-source.json)
